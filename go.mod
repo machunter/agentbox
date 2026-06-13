@@ -6,6 +6,7 @@ require (
 	github.com/Alcova-AI/adk-anthropic-go v0.1.18
 	github.com/anthropics/anthropic-sdk-go v1.50.1
 	github.com/google/jsonschema-go v0.4.2
+	github.com/philippgille/chromem-go v0.7.0
 	google.golang.org/adk v1.4.0
 	google.golang.org/genai v1.57.0
 )
