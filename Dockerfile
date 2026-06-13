@@ -19,10 +19,16 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Run as an unprivileged user — the agent executes model-directed commands, so
-# keep its blast radius small.
-RUN useradd --create-home --uid 10001 agent
+# keep its blast radius small. Create the long-term-memory dir owned by that
+# user so a mounted named volume inherits writable ownership on first init.
+RUN useradd --create-home --uid 10001 agent \
+    && mkdir -p /data/memory \
+    && chown -R agent:agent /data
 USER agent
 WORKDIR /workspace
+
+# Default the memory store into the volume mount point (overridable at runtime).
+ENV AGENTBOX_MEMORY_DIR=/data/memory
 
 COPY --from=build /out/agentbox /usr/local/bin/agentbox
 

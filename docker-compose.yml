@@ -1,0 +1,62 @@
+# agentbox runs as a small stack: the agent itself plus a local Ollama server
+# that provides embeddings for long-term memory. Nothing leaves the machine
+# except the LLM calls to the Anthropic API.
+#
+# Usage:
+#   export ANTHROPIC_API_KEY=sk-ant-...        # or put it in .env (compose reads it)
+#   docker compose run --rm agentbox "summarize the files in /workspace"
+#
+# `run` automatically starts ollama, waits for the embedding model to be pulled,
+# then runs the agent. Memory and the model cache persist in named volumes.
+
+services:
+  # Local embedding server. No host port is published — only agentbox reaches it
+  # over the compose network.
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  # One-shot: pull the embedding model into the ollama server, then exit.
+  # Re-running is a no-op once the model is cached in the volume.
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["ollama", "pull", "${AGENTBOX_EMBED_MODEL:-nomic-embed-text}"]
+    restart: "no"
+
+  agentbox:
+    build: .
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+    environment:
+      # Required. Compose substitutes from your shell env or a local .env file.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY (shell env or .env)}
+      # Point the embedder at the ollama service; keep memory on the volume.
+      - AGENTBOX_OLLAMA_URL=http://ollama:11434/api
+      - AGENTBOX_EMBED_MODEL=${AGENTBOX_EMBED_MODEL:-nomic-embed-text}
+      - AGENTBOX_MEMORY_DIR=/data/memory
+      # Isolates this deployment's memory (e.g. "personal" vs "work").
+      - AGENTBOX_NAMESPACE=${AGENTBOX_NAMESPACE:-default}
+    volumes:
+      # Mount the directory the agent should act on (default: current dir).
+      - ${AGENTBOX_WORKSPACE:-.}:/workspace
+      # Long-term memory persists across runs.
+      - agentbox_memory:/data/memory
+
+volumes:
+  ollama_models:
+  agentbox_memory:
