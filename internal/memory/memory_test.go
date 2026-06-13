@@ -24,7 +24,7 @@ const fakeDim = 64
 
 func (fakeEmbedder) embed(text string) ([]float32, error) {
 	vec := make([]float32, fakeDim)
-	for _, word := range strings.Fields(strings.ToLower(text)) {
+	for word := range strings.FieldsSeq(strings.ToLower(text)) {
 		h := fnv.New32a()
 		_, _ = h.Write([]byte(word))
 		vec[h.Sum32()%fakeDim] += 1

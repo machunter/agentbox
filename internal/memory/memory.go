@@ -157,10 +157,7 @@ func (s *Service) SearchMemory(ctx context.Context, req *memory.SearchRequest) (
 	if count == 0 {
 		return resp, nil
 	}
-	k := s.topK
-	if k > count {
-		k = count
-	}
+	k := min(s.topK, count)
 
 	vec, err := s.embedder.EmbedQuery(ctx, req.Query)
 	if err != nil {
