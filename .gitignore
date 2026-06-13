@@ -1,0 +1,11 @@
+# Build output
+/agentbox
+/out/
+
+# macOS
+.DS_Store
+
+# Local secrets — never commit
+.env
+.env.*
+!.env.example
