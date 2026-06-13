@@ -1,24 +1,38 @@
-// Package agent runs the core perceive -> think -> act loop: it sends the
-// conversation to Claude, executes any tools Claude asks for, feeds the
-// results back, and repeats until Claude produces a final answer.
+// Package agent runs the core perceive -> think -> act loop on top of Google's
+// Agent Development Kit (ADK). It builds an ADK agent backed by Claude (via the
+// Anthropic model adapter), gives it the run_bash tool, and drives the runner's
+// event stream until the agent produces a final answer.
 package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 
+	adkanthropic "github.com/Alcova-AI/adk-anthropic-go"
 	"github.com/anthropics/anthropic-sdk-go"
+	"google.golang.org/adk/agent"
+	"google.golang.org/adk/agent/llmagent"
+	"google.golang.org/adk/runner"
+	"google.golang.org/adk/session"
+	"google.golang.org/adk/tool"
+	"google.golang.org/genai"
 
 	"github.com/burcsahinoglu/agentbox/internal/tools"
 )
 
-// Default tuning. Opus 4.8 uses adaptive thinking (Claude decides how much to
-// think per turn); effort defaults to "high" so it is left unset.
+// Default tuning. Opus 4.8 uses adaptive thinking; the adapter defaults to
+// adaptive on adaptive-capable models when no thinking config is set, so we
+// leave it unset.
 const (
-	model        = anthropic.ModelClaudeOpus4_8
-	maxTokens    = 16000
-	maxTurns     = 25 // safety stop so a misbehaving loop can't run forever
+	modelName = anthropic.ModelClaudeOpus4_8
+	maxTurns  = 25 // safety stop (counted in tool-call rounds) so a loop can't run forever
+	appName   = "agentbox"
+	userID    = "local"
+	sessionID = "main"
+
 	systemPrompt = "You are agentbox, an autonomous agent running inside a sandboxed Docker container. " +
 		"You accomplish the user's task by reasoning and by running bash commands with the run_bash tool. " +
 		"Work in small, verifiable steps: inspect before you act, and check your work. " +
@@ -27,71 +41,99 @@ const (
 
 // Agent holds the dependencies for a run.
 type Agent struct {
-	client anthropic.Client
+	runner *runner.Runner
 	out    io.Writer
 }
 
-// New builds an Agent. The client reads ANTHROPIC_API_KEY from the
-// environment by default.
-func New(out io.Writer) *Agent {
-	return &Agent{client: anthropic.NewClient(), out: out}
+// New builds an Agent: a Claude-backed ADK agent with the run_bash tool, driven
+// by an ADK runner with an in-memory session store. The model reads
+// ANTHROPIC_API_KEY from the environment.
+func New(ctx context.Context, out io.Writer) (*Agent, error) {
+	model, err := adkanthropic.NewModel(ctx, modelName, &adkanthropic.Config{
+		APIKey: os.Getenv("ANTHROPIC_API_KEY"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("init model: %w", err)
+	}
+
+	bash, err := tools.NewBash()
+	if err != nil {
+		return nil, fmt.Errorf("init run_bash tool: %w", err)
+	}
+
+	llm, err := llmagent.New(llmagent.Config{
+		Name:        appName,
+		Description: "An autonomous agent that runs bash commands in a sandboxed container to accomplish a task.",
+		Model:       model,
+		Instruction: systemPrompt,
+		Tools:       []tool.Tool{bash},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("init agent: %w", err)
+	}
+
+	r, err := runner.New(runner.Config{
+		AppName:           appName,
+		Agent:             llm,
+		SessionService:    session.InMemoryService(),
+		AutoCreateSession: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("init runner: %w", err)
+	}
+
+	return &Agent{runner: r, out: out}, nil
 }
 
-// Run drives the agentic loop for a single task and returns when Claude stops
-// requesting tools (or maxTurns is hit).
+// Run drives the agentic loop for a single task. It returns when the agent
+// stops calling tools (or the maxTurns safety cap is hit).
 func (a *Agent) Run(ctx context.Context, task string) error {
-	messages := []anthropic.MessageParam{
-		anthropic.NewUserMessage(anthropic.NewTextBlock(task)),
-	}
-	toolset := []anthropic.ToolUnionParam{{OfTool: &tools.Bash}}
+	msg := genai.NewContentFromText(task, genai.RoleUser)
 
-	adaptive := anthropic.ThinkingConfigAdaptiveParam{}
-
-	for turn := 1; turn <= maxTurns; turn++ {
-		resp, err := a.client.Messages.New(ctx, anthropic.MessageNewParams{
-			Model:     model,
-			MaxTokens: maxTokens,
-			System:    []anthropic.TextBlockParam{{Text: systemPrompt}},
-			Thinking:  anthropic.ThinkingConfigParamUnion{OfAdaptive: &adaptive},
-			Messages:  messages,
-			Tools:     toolset,
-		})
+	turns := 0
+	for ev, err := range a.runner.Run(ctx, userID, sessionID, msg, agent.RunConfig{}) {
 		if err != nil {
-			return fmt.Errorf("turn %d: messages.new: %w", turn, err)
+			return fmt.Errorf("run: %w", err)
 		}
-
-		// Record the assistant turn before acting on its tool calls.
-		messages = append(messages, resp.ToParam())
-
-		toolResults := a.handleContent(ctx, resp)
-
-		// No tool calls -> Claude is done.
-		if resp.StopReason != anthropic.StopReasonToolUse {
-			return nil
+		if a.printEvent(ev) {
+			turns++
+			if turns >= maxTurns {
+				fmt.Fprintf(a.out, "\n[stopped after %d tool calls]\n", maxTurns)
+				return nil
+			}
 		}
-		messages = append(messages, anthropic.NewUserMessage(toolResults...))
 	}
-
-	fmt.Fprintf(a.out, "\n[stopped after %d turns]\n", maxTurns)
 	return nil
 }
 
-// handleContent prints assistant text and executes each tool call, returning
-// the tool_result blocks to send back on the next turn.
-func (a *Agent) handleContent(ctx context.Context, resp *anthropic.Message) []anthropic.ContentBlockParamUnion {
-	var results []anthropic.ContentBlockParamUnion
-	for _, block := range resp.Content {
-		switch v := block.AsAny().(type) {
-		case anthropic.TextBlock:
-			fmt.Fprintln(a.out, v.Text)
-		case anthropic.ToolUseBlock:
-			fmt.Fprintf(a.out, "\n› run_bash %s\n", string(v.JSON.Input.Raw()))
-			output, isErr, err := tools.RunBash(ctx, []byte(v.JSON.Input.Raw()))
-			if err != nil {
-				output, isErr = err.Error(), true
-			}
-			results = append(results, anthropic.NewToolResultBlock(block.ID, output, isErr))
+// printEvent writes an event's assistant text and any tool calls to the output,
+// mirroring the original CLI: thinking is not shown, tool results are fed back
+// to the model rather than printed. It returns true if the event contained at
+// least one tool call (used to count turns against the safety cap).
+func (a *Agent) printEvent(ev *session.Event) bool {
+	if ev == nil || ev.Content == nil {
+		return false
+	}
+	hasToolCall := false
+	for _, part := range ev.Content.Parts {
+		switch {
+		case part.Thought:
+			// Don't surface the model's thinking.
+		case part.FunctionCall != nil:
+			hasToolCall = true
+			fmt.Fprintf(a.out, "\n› %s %s\n", part.FunctionCall.Name, argsJSON(part.FunctionCall.Args))
+		case part.Text != "":
+			fmt.Fprintln(a.out, part.Text)
 		}
 	}
-	return results
+	return hasToolCall
+}
+
+// argsJSON renders tool-call arguments compactly for the trace line.
+func argsJSON(args map[string]any) string {
+	b, err := json.Marshal(args)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
 }

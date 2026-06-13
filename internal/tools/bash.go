@@ -1,78 +1,82 @@
 // Package tools defines the capabilities the agent can invoke.
 //
-// Each tool is a pair: an Anthropic tool definition (the schema the model
-// sees) and a Go function that executes the call inside the container.
+// Each tool is built with ADK's functiontool helper: a typed handler plus a
+// JSON schema describing its arguments to the model. The handler runs the call
+// inside the agent's container.
 package tools
 
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
 	"os/exec"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/google/jsonschema-go/jsonschema"
+	"google.golang.org/adk/agent"
+	"google.golang.org/adk/tool"
+	"google.golang.org/adk/tool/functiontool"
 )
 
 // bashTimeout bounds how long a single command may run before it is killed.
 const bashTimeout = 60 * time.Second
 
-// Bash is the tool definition advertised to the model. It runs a shell
-// command inside the agent's own environment — which, in this project, is a
-// sandboxed Docker container, so giving the agent a general bash tool is a
-// reasonable trade of breadth for blast radius.
-var Bash = anthropic.ToolParam{
-	Name:        "run_bash",
-	Description: anthropic.String("Run a bash command inside the agent's container and return its combined stdout and stderr. Use this to inspect the filesystem, run programs, and accomplish the task. Commands run from the working directory and time out after 60 seconds."),
-	InputSchema: anthropic.ToolInputSchemaParam{
-		Properties: map[string]any{
-			"command": map[string]any{
-				"type":        "string",
-				"description": "The bash command to execute, e.g. \"ls -la\" or \"cat go.mod\".",
-			},
-		},
-		Required: []string{"command"},
-	},
-}
-
-// bashInput mirrors the JSON the model produces for a run_bash call.
-type bashInput struct {
+// BashArgs is the input the model produces for a run_bash call.
+type BashArgs struct {
 	Command string `json:"command"`
 }
 
-// RunBash executes a run_bash tool call and returns the text to feed back to
-// the model. A non-nil error is returned only for malformed input; command
-// failures are reported in-band (as text) so the model can read the error and
-// adapt rather than aborting the whole loop.
-func RunBash(ctx context.Context, rawInput json.RawMessage) (string, bool, error) {
-	var in bashInput
-	if err := json.Unmarshal(rawInput, &in); err != nil {
-		return "", true, fmt.Errorf("invalid run_bash input: %w", err)
-	}
-	if in.Command == "" {
-		return "error: empty command", true, nil
+// BashResult is fed back to the model. Command failures are reported in-band
+// (via ExitError) rather than as a Go error, so the model can read the failure
+// and adapt instead of aborting the whole run.
+type BashResult struct {
+	Output    string `json:"output"`
+	ExitError string `json:"exit_error,omitempty"`
+}
+
+// NewBash builds the run_bash tool. It runs a shell command inside the agent's
+// own environment — a sandboxed Docker container — so a general bash tool is a
+// reasonable trade of breadth for blast radius.
+func NewBash() (tool.Tool, error) {
+	return functiontool.New(functiontool.Config{
+		Name:        "run_bash",
+		Description: "Run a bash command inside the agent's container and return its combined stdout and stderr. Use this to inspect the filesystem, run programs, and accomplish the task. Commands run from the working directory and time out after 60 seconds.",
+		InputSchema: &jsonschema.Schema{
+			Type: "object",
+			Properties: map[string]*jsonschema.Schema{
+				"command": {
+					Type:        "string",
+					Description: `The bash command to execute, e.g. "ls -la" or "cat go.mod".`,
+				},
+			},
+			Required: []string{"command"},
+		},
+	}, runBash)
+}
+
+// runBash executes a run_bash tool call. The tool context is itself a
+// context.Context, so it carries cancellation from the outer run.
+func runBash(tc agent.ToolContext, args BashArgs) (BashResult, error) {
+	if args.Command == "" {
+		return BashResult{ExitError: "empty command"}, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, bashTimeout)
+	ctx, cancel := context.WithTimeout(tc, bashTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "bash", "-c", in.Command)
+	cmd := exec.CommandContext(ctx, "bash", "-c", args.Command)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	err := cmd.Run()
 
-	combined := out.String()
-	if ctx.Err() == context.DeadlineExceeded {
-		return combined + "\n[command timed out after 60s]", true, nil
+	res := BashResult{Output: out.String()}
+	switch {
+	case ctx.Err() == context.DeadlineExceeded:
+		res.ExitError = "command timed out after 60s"
+	case err != nil:
+		res.ExitError = err.Error()
+	case res.Output == "":
+		res.Output = "[command produced no output]"
 	}
-	if err != nil {
-		// Surface the failure to the model as a (non-fatal) tool error.
-		return fmt.Sprintf("%s\n[exit error: %v]", combined, err), true, nil
-	}
-	if combined == "" {
-		return "[command produced no output]", false, nil
-	}
-	return combined, false, nil
+	return res, nil
 }
