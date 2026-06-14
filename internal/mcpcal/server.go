@@ -219,6 +219,7 @@ func (s *server) fetchAll(ctx context.Context) ([]*ical.Calendar, error) {
 
 type eventInstance struct {
 	Start, End time.Time
+	AllDay     bool
 	Summary    string
 	Location   string
 	Calendar   string
@@ -241,6 +242,10 @@ func collectInstances(cals []*ical.Calendar, winStart, winEnd time.Time, loc *ti
 			if err != nil {
 				continue
 			}
+			// All-day events use a DATE (not DATE-TIME) DTSTART.
+			startProp := ev.Props.Get(ical.PropDateTimeStart)
+			allDay := startProp != nil && startProp.ValueType() == ical.ValueDate
+
 			var dur time.Duration
 			if end, eerr := ev.DateTimeEnd(loc); eerr == nil && end.After(start) {
 				dur = end.Sub(start)
@@ -249,6 +254,7 @@ func collectInstances(cals []*ical.Calendar, winStart, winEnd time.Time, loc *ti
 				out = append(out, eventInstance{
 					Start:    occ,
 					End:      occ.Add(dur),
+					AllDay:   allDay,
 					Summary:  summary,
 					Location: location,
 					Calendar: name,
@@ -288,9 +294,13 @@ func formatInstances(insts []eventInstance, loc *time.Location) string {
 	}
 	var b strings.Builder
 	for _, e := range insts {
-		fmt.Fprintf(&b, "%s", e.Start.In(loc).Format("Mon 2006-01-02 15:04"))
-		if e.End.After(e.Start) {
-			fmt.Fprintf(&b, "–%s", e.End.In(loc).Format("15:04"))
+		if e.AllDay {
+			fmt.Fprintf(&b, "%s all-day", e.Start.In(loc).Format("Mon 2006-01-02"))
+		} else {
+			fmt.Fprintf(&b, "%s", e.Start.In(loc).Format("Mon 2006-01-02 15:04"))
+			if e.End.After(e.Start) {
+				fmt.Fprintf(&b, "–%s", e.End.In(loc).Format("15:04"))
+			}
 		}
 		fmt.Fprintf(&b, "\t%s", e.Summary)
 		if e.Location != "" {

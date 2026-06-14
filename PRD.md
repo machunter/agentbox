@@ -65,7 +65,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Filesystem tools (`list_directory`, `read_file`, `search_files`) | ✅ | MCP server jailed to `/workspace` |
 | Multi-directory access | ✅ | `MOUNTS` / compose override; mount under `/workspace` |
 | Email — read (`list_recent_emails`, `search_emails`, `read_email`) | ✅ | IMAP, read-only; enabled only when configured |
-| Calendar — read (`list_upcoming_events`, `events_on_day`, `search_events`) | 🟡 | ICS feeds, read-only, recurrence-expanded; unit-tested, not yet exercised live |
+| Calendar — read (`list_upcoming_events`, `events_on_day`, `search_events`) | ✅ | ICS feeds, read-only, recurrence-expanded, all-day aware; validated live |
 | Email — send | 🔵 | Gated by human confirmation; design pending (§8). Deprioritized below calendar. |
 | Long-lived / scheduled operation | 🔵 | Replace one-shot `docker run` (§8) |
 | Local LLM inference | 🤔 | Would remove the inference caveat; large effort, out of scope for now |

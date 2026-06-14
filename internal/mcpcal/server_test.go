@@ -26,6 +26,12 @@ DTEND:20260615T093000Z
 RRULE:FREQ=WEEKLY;COUNT=4
 SUMMARY:Weekly Standup
 END:VEVENT
+BEGIN:VEVENT
+UID:allday@test
+DTSTART;VALUE=DATE:20260618
+DTEND;VALUE=DATE:20260619
+SUMMARY:Surgery
+END:VEVENT
 END:VCALENDAR
 `
 
@@ -45,30 +51,31 @@ func day(y int, m time.Month, d int) time.Time {
 func TestCollectInstancesExpandsRecurrenceAndFiltersWindow(t *testing.T) {
 	cal := decodeCal(t, sampleICS)
 
-	// Window: 2026-06-15 .. 2026-06-23 (exclusive end).
-	// Expect: weekly on 06-15 and 06-22, plus the single on 06-20. (06-29 out.)
+	// Window: 2026-06-15 .. 2026-06-23 (exclusive end). Expect, in order:
+	// 06-15 standup, 06-18 Surgery (all-day), 06-20 single, 06-22 standup.
 	insts := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 15), day(2026, 6, 23), time.UTC)
 
-	if len(insts) != 3 {
-		t.Fatalf("want 3 instances, got %d: %+v", len(insts), insts)
+	if len(insts) != 4 {
+		t.Fatalf("want 4 instances, got %d: %+v", len(insts), insts)
 	}
-	// Sorted by start: 06-15 standup, 06-20 single, 06-22 standup.
-	if !insts[0].Start.Equal(time.Date(2026, 6, 15, 9, 0, 0, 0, time.UTC)) {
-		t.Errorf("first start = %v", insts[0].Start)
+	wantStarts := []time.Time{
+		time.Date(2026, 6, 15, 9, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 18, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 20, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 22, 9, 0, 0, 0, time.UTC),
 	}
-	if insts[1].Summary != "Single Meeting" || insts[1].Location != "Room A" {
-		t.Errorf("second instance = %+v", insts[1])
-	}
-	if !insts[2].Start.Equal(time.Date(2026, 6, 22, 9, 0, 0, 0, time.UTC)) {
-		t.Errorf("third start = %v", insts[2].Start)
+	for i, want := range wantStarts {
+		if !insts[i].Start.Equal(want) {
+			t.Errorf("instance %d start = %v, want %v", i, insts[i].Start, want)
+		}
+		if insts[i].Calendar != "Test Cal" {
+			t.Errorf("calendar name not propagated: %q", insts[i].Calendar)
+		}
 	}
 	standups := 0
 	for _, e := range insts {
 		if e.Summary == "Weekly Standup" {
 			standups++
-		}
-		if e.Calendar != "Test Cal" {
-			t.Errorf("calendar name not propagated: %q", e.Calendar)
 		}
 	}
 	if standups != 2 {
@@ -78,10 +85,26 @@ func TestCollectInstancesExpandsRecurrenceAndFiltersWindow(t *testing.T) {
 
 func TestCollectInstancesEmptyWindow(t *testing.T) {
 	cal := decodeCal(t, sampleICS)
-	// 06-16 .. 06-19: no single (06-20), no standup (06-15 before, 06-22 after).
-	insts := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 16), day(2026, 6, 19), time.UTC)
+	// 06-16 .. 06-18: no single (06-20), no standup (06-15 before, 06-22 after),
+	// no Surgery (06-18 is excluded by the end boundary).
+	insts := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 16), day(2026, 6, 18), time.UTC)
 	if len(insts) != 0 {
 		t.Fatalf("want 0 instances, got %d: %+v", len(insts), insts)
+	}
+}
+
+func TestAllDayRendering(t *testing.T) {
+	cal := decodeCal(t, sampleICS)
+	insts := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 18), day(2026, 6, 19), time.UTC)
+	if len(insts) != 1 || !insts[0].AllDay {
+		t.Fatalf("want 1 all-day instance, got %+v", insts)
+	}
+	out := formatInstances(insts, time.UTC)
+	if !strings.Contains(out, "all-day") || !strings.Contains(out, "Surgery") {
+		t.Errorf("all-day not rendered: %q", out)
+	}
+	if strings.Contains(out, "00:00") {
+		t.Errorf("all-day event should not show 00:00 times: %q", out)
 	}
 }
 
