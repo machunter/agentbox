@@ -30,12 +30,17 @@ docker-run:
 		-v "$(PWD):/workspace" \
 		$(IMAGE) "$(TASK)"
 
+# Extra host directories to grant the agent, as space-separated host:container
+# pairs. Mount them UNDER /workspace so the jailed file tools can see them too.
+# Usage: make compose-run MOUNTS="$$HOME/Notes:/workspace/notes" TASK="..."
+MOUNTS ?=
+
 # Run the full stack (agent + local Ollama for memory) via docker compose.
 # Brings up Ollama, pulls the embedding model, then runs the agent. Memory
 # persists in a named volume across runs.
 # Usage: make compose-run TASK="summarize the files in /workspace"
 compose-run:
-	docker compose run --rm agentbox "$(TASK)"
+	docker compose run --rm $(addprefix -v ,$(MOUNTS)) agentbox "$(TASK)"
 
 # Stop the stack. Add `-v` manually to also drop the memory/model volumes.
 compose-down:

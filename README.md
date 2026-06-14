@@ -110,6 +110,34 @@ make compose-down
 The compose stack mounts the current directory as `/workspace` so the agent can
 act on real files, and runs the agent as an unprivileged user.
 
+## Giving the agent access to your files
+
+Running in a container, the agent sees **only what you mount** — by default the
+directory you launch from (at `/workspace`) and its own memory store. The rest of
+your machine is invisible. That isolation is deliberate: it bounds what a
+model-directed `run_bash` can touch. You grant more access explicitly.
+
+- **Point the workspace elsewhere:** `AGENTBOX_WORKSPACE=~/Documents make compose-run TASK="..."`
+- **Add directories for one run:** mount extra `host:container` pairs via `MOUNTS`
+  (mount them *under* `/workspace` so the structured file tools, which are jailed
+  there, can see them too):
+
+  ```sh
+  make compose-run MOUNTS="$HOME/Notes:/workspace/notes" \
+    TASK="summarize my notes in /workspace/notes"
+  ```
+
+- **Add directories permanently:** copy `docker-compose.override.yml.example` to
+  `docker-compose.override.yml` (gitignored) and list your mounts there; Compose
+  merges it on every run. Use `:ro` for anything the agent shouldn't modify.
+
+The agent refers to mounted dirs by their **container** path (`/workspace/notes`),
+not the host path. On macOS, Docker Desktop maps your user's file ownership
+transparently; on Linux, mind the unprivileged uid (10001) when mounting.
+This pairs with `AGENTBOX_NAMESPACE`: a work deployment mounts work dirs, a
+personal one mounts personal dirs, and neither can see the other's files or
+memory.
+
 ## Configuration
 
 | Variable | Default | Purpose |
