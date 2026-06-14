@@ -11,6 +11,8 @@ require (
 	github.com/google/jsonschema-go v0.4.2
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/philippgille/chromem-go v0.7.0
+	github.com/robfig/cron/v3 v3.0.1
+	go.yaml.in/yaml/v4 v4.0.0-rc.2
 	google.golang.org/adk v1.4.0
 	google.golang.org/genai v1.57.0
 )
@@ -52,7 +54,6 @@ require (
 	go.opentelemetry.io/otel/log v0.16.0 // indirect
 	go.opentelemetry.io/otel/metric v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
-	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/crypto v0.51.0 // indirect
 	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect

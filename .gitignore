@@ -12,3 +12,6 @@
 
 # Local compose customization (extra mounts, etc.)
 docker-compose.override.yml
+
+# Local scheduler config
+schedule.yaml

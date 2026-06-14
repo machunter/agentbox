@@ -1,0 +1,21 @@
+# Copy to schedule.yaml (gitignored) and edit. The scheduler (`agentbox serve`,
+# or `docker compose up`) runs each task on its cron schedule. Each run is an
+# independent agent run that shares the persistent memory store.
+#
+# schedule: standard 5-field cron ("min hour dom mon dow") or a descriptor
+#           (@hourly, @daily, @weekly, @monthly). Interpreted in the container's
+#           timezone — set AGENTBOX_TIMEZONE to control it.
+# prompt:   the task given to the agent, same as a one-shot task.
+
+tasks:
+  - name: morning-briefing
+    schedule: "0 8 * * *"          # every day at 08:00
+    prompt: >
+      Summarize my unread emails from the last day and list today's calendar
+      events. Flag anything that looks urgent or needs a reply.
+
+  - name: weekly-review
+    schedule: "0 17 * * 5"         # Fridays at 17:00
+    prompt: >
+      Review my calendar for the past week and draft a short summary of what
+      I worked on, based on events and any notes in /workspace.

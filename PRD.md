@@ -5,7 +5,7 @@
 > treat it as the source of intent, not a frozen spec.
 
 **Status key:** ✅ Shipped (validated live) · 🟡 Shipped (unit-tested, not exercised live) · 🔵 Planned · 🤔 Considering
-**Last updated:** 2026-06-14 (calendar connector) · **Branch of record:** `main`
+**Last updated:** 2026-06-14 (scheduler) · **Branch of record:** `main`
 
 ---
 
@@ -66,8 +66,8 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Multi-directory access | ✅ | `MOUNTS` / compose override; mount under `/workspace` |
 | Email — read (`list_recent_emails`, `search_emails`, `read_email`) | ✅ | IMAP, read-only; enabled only when configured |
 | Calendar — read (`list_upcoming_events`, `events_on_day`, `search_events`) | ✅ | ICS feeds, read-only, recurrence-expanded, all-day aware; validated live |
-| Email — send | 🔵 | Gated by human confirmation; design pending (§8). Deprioritized below calendar. |
-| Long-lived / scheduled operation | 🔵 | Replace one-shot `docker run` (§8) |
+| Long-lived / scheduled operation (`serve`, `run-task`) | ✅ | Cron scheduler runs YAML-configured tasks; run path validated live via `run-task`, timed firing via robfig/cron |
+| Email — send | 🔵 | Gated by human confirmation; design pending (§8) |
 | Local LLM inference | 🤔 | Would remove the inference caveat; large effort, out of scope for now |
 
 ## 6. Architecture (as built)
@@ -100,7 +100,8 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | `AGENTBOX_OLLAMA_URL`, `AGENTBOX_EMBED_MODEL` | Local embedder. |
 | `AGENTBOX_WORKSPACE`, `MOUNTS` | Host directories the agent can access. |
 | `AGENTBOX_IMAP_HOST/PORT/USER/PASS` | Read-only email (use an app password). |
-| `AGENTBOX_ICS_URLS`, `AGENTBOX_TIMEZONE` | Read-only calendar (ICS feeds) + day-boundary timezone. |
+| `AGENTBOX_ICS_URLS`, `AGENTBOX_TIMEZONE` | Read-only calendar (ICS feeds) + day-boundary / cron timezone. |
+| `AGENTBOX_SCHEDULE` | Path to the schedule YAML (for `serve` / `run-task`). |
 
 ## 8. Open questions / decisions pending
 
@@ -108,8 +109,12 @@ user's control, on their own hardware, scoped to what they explicitly grant.
   `RequireConfirmation`) needs an approval path, but the agent is a one-shot,
   non-interactive container today. Resolving this is a prerequisite for SMTP send
   and any other write action.
-- **Long-lived mode.** A persistent or scheduled process is likely needed for a
-  real assistant; the current `main.go` is structured to make that change small.
+- **Scheduler result delivery.** Scheduled runs currently log their output. A
+  real assistant probably wants results delivered (email/push/file) rather than
+  only sitting in logs — pairs naturally with the email-send capability.
+- **Per-run connector cost.** Each scheduled run builds a fresh agent (re-launches
+  connector subprocesses, re-probes Ollama). Fine at daily cadence; revisit if
+  schedules get frequent.
 - **Per-context live validation.** Namespace isolation is unit-tested; not yet
   exercised across two live deployments.
 
@@ -119,6 +124,8 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 - OAuth / provider-specific APIs (Gmail API, etc.) — IMAP/SMTP is the universal
   path chosen.
 - A graphical UI; multi-user/tenant operation.
+- Event-driven/reactive triggers (e.g. act on each new email). The scheduler is
+  cron/time-based for now; reactive triggers are a later consideration.
 
 ## 10. Decision log
 
@@ -133,3 +140,6 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Calendar access | Read-only ICS secret-URL feeds | Google deprecated app-password CalDAV (needs OAuth); ICS secret URL is read-only, no OAuth, universal — consistent with the email decision |
 | Calendar before email-send | Reprioritized | A read-only connector ships value now without resolving the send-confirmation design first |
 | Connector packaging | Self-launched MCP subprocess | One binary, no Node/second artifact; uniform pattern |
+| Scheduling | In-process cron daemon (`serve`) | Self-contained, keeps memory warm, one container; over external cron + one-shot |
+| Schedule config | YAML file (tasks: name/schedule/prompt) | Human-editable; mounted in; `run-task` for testing |
+| Scheduled run isolation | Fresh agent + session per fire | Tasks don't bleed into each other; still share durable memory |
