@@ -14,7 +14,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
@@ -59,34 +58,59 @@ func Configured() bool {
 	return ok
 }
 
-// server holds a logged-in IMAP client, guarded by a mutex since IMAP commands
-// on one connection must not interleave.
+// server connects to IMAP fresh for each tool call. A long-lived connection is
+// avoided deliberately: it sits idle between the server starting and the first
+// tool call (while the agent thinks), and the server then drops it. Per-call
+// connections are immediately used, which is reliable.
 type server struct {
-	mu     sync.Mutex
-	client *imapclient.Client
+	cfg Config
 }
 
-// Serve connects to IMAP and runs the email MCP server over stdio until the
-// context is cancelled. It writes nothing to stdout but the MCP protocol.
+// Serve runs the email MCP server over stdio until the context is cancelled. It
+// writes nothing to stdout but the MCP protocol. Credentials are validated per
+// call (see withClient), not held open here.
 func Serve(ctx context.Context) error {
 	cfg, ok := LoadConfig()
 	if !ok {
 		return fmt.Errorf("email not configured (set AGENTBOX_IMAP_HOST/USER/PASS)")
 	}
-
-	client, err := imapclient.DialTLS(cfg.Host+":"+cfg.Port, nil)
-	if err != nil {
-		return fmt.Errorf("imap dial: %w", err)
-	}
-	if err := client.Login(cfg.User, cfg.Pass).Wait(); err != nil {
-		return fmt.Errorf("imap login: %w", err)
-	}
-	defer client.Logout().Wait()
-
-	s := &server{client: client}
+	s := &server{cfg: cfg}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "agentbox-mail", Version: "0.1.0"}, nil)
 	s.registerTools(srv)
 	return srv.Run(ctx, &mcp.StdioTransport{})
+}
+
+// CheckConnection is a diagnostic: it connects and lists a few INBOX messages,
+// returning the result as plain text. Used by the "mail-check" subcommand to
+// test IMAP reachability without the MCP/agent layers.
+func CheckConnection(ctx context.Context) (string, error) {
+	cfg, ok := LoadConfig()
+	if !ok {
+		return "", fmt.Errorf("email not configured (set AGENTBOX_IMAP_HOST/USER/PASS)")
+	}
+	s := &server{cfg: cfg}
+	return s.listRecent(ctx, defaultMailbox, 3)
+}
+
+// withClient dials and logs in, runs fn, then logs out and closes — one fresh
+// connection per call.
+func (s *server) withClient(fn func(*imapclient.Client) (string, error)) (string, error) {
+	var opts *imapclient.Options
+	if os.Getenv("AGENTBOX_IMAP_DEBUG") != "" {
+		opts = &imapclient.Options{DebugWriter: os.Stderr} // raw protocol trace to stderr
+	}
+	client, err := imapclient.DialTLS(s.cfg.Host+":"+s.cfg.Port, opts)
+	if err != nil {
+		return "", fmt.Errorf("imap dial: %w", err)
+	}
+	defer client.Close()
+	if err := client.Login(s.cfg.User, s.cfg.Pass).Wait(); err != nil {
+		return "", fmt.Errorf("imap login: %w", err)
+	}
+	// Wrap in a closure: `defer client.Logout().Wait()` would evaluate
+	// client.Logout() immediately, sending LOGOUT before fn runs.
+	defer func() { _ = client.Logout().Wait() }()
+	return fn(client)
 }
 
 // --- tool inputs ---
@@ -136,79 +160,76 @@ func (s *server) registerTools(srv *mcp.Server) {
 // --- IMAP operations (thin; integration-tested with a real server) ---
 
 func (s *server) listRecent(_ context.Context, mailbox string, limit int) (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	return s.withClient(func(c *imapclient.Client) (string, error) {
+		sel, err := c.Select(mailbox, nil).Wait()
+		if err != nil {
+			return "", fmt.Errorf("select %q: %w", mailbox, err)
+		}
+		if sel.NumMessages == 0 {
+			return "(mailbox is empty)", nil
+		}
+		start := uint32(1)
+		if sel.NumMessages > uint32(limit) {
+			start = sel.NumMessages - uint32(limit) + 1
+		}
+		var seq imap.SeqSet
+		seq.AddRange(start, sel.NumMessages)
 
-	sel, err := s.client.Select(mailbox, nil).Wait()
-	if err != nil {
-		return "", fmt.Errorf("select %q: %w", mailbox, err)
-	}
-	if sel.NumMessages == 0 {
-		return "(mailbox is empty)", nil
-	}
-	start := uint32(1)
-	if sel.NumMessages > uint32(limit) {
-		start = sel.NumMessages - uint32(limit) + 1
-	}
-	var seq imap.SeqSet
-	seq.AddRange(start, sel.NumMessages)
-
-	msgs, err := s.client.Fetch(seq, &imap.FetchOptions{Envelope: true, UID: true}).Collect()
-	if err != nil {
-		return "", fmt.Errorf("fetch: %w", err)
-	}
-	return formatList(msgs), nil
+		msgs, err := c.Fetch(seq, &imap.FetchOptions{Envelope: true, UID: true}).Collect()
+		if err != nil {
+			return "", fmt.Errorf("fetch: %w", err)
+		}
+		return formatList(msgs), nil
+	})
 }
 
 func (s *server) search(_ context.Context, query, mailbox string, limit int) (string, error) {
 	if strings.TrimSpace(query) == "" {
 		return "", fmt.Errorf("query is empty")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, err := s.client.Select(mailbox, nil).Wait(); err != nil {
-		return "", fmt.Errorf("select %q: %w", mailbox, err)
-	}
-	data, err := s.client.UIDSearch(&imap.SearchCriteria{Text: []string{query}}, nil).Wait()
-	if err != nil {
-		return "", fmt.Errorf("search: %w", err)
-	}
-	uids := data.AllUIDs()
-	if len(uids) == 0 {
-		return fmt.Sprintf("no emails matching %q", query), nil
-	}
-	if len(uids) > limit { // keep the most recent (highest UIDs)
-		uids = uids[len(uids)-limit:]
-	}
-	msgs, err := s.client.Fetch(imap.UIDSetNum(uids...), &imap.FetchOptions{Envelope: true, UID: true}).Collect()
-	if err != nil {
-		return "", fmt.Errorf("fetch: %w", err)
-	}
-	return formatList(msgs), nil
+	return s.withClient(func(c *imapclient.Client) (string, error) {
+		if _, err := c.Select(mailbox, nil).Wait(); err != nil {
+			return "", fmt.Errorf("select %q: %w", mailbox, err)
+		}
+		data, err := c.UIDSearch(&imap.SearchCriteria{Text: []string{query}}, nil).Wait()
+		if err != nil {
+			return "", fmt.Errorf("search: %w", err)
+		}
+		uids := data.AllUIDs()
+		if len(uids) == 0 {
+			return fmt.Sprintf("no emails matching %q", query), nil
+		}
+		if len(uids) > limit { // keep the most recent (highest UIDs)
+			uids = uids[len(uids)-limit:]
+		}
+		msgs, err := c.Fetch(imap.UIDSetNum(uids...), &imap.FetchOptions{Envelope: true, UID: true}).Collect()
+		if err != nil {
+			return "", fmt.Errorf("fetch: %w", err)
+		}
+		return formatList(msgs), nil
+	})
 }
 
 func (s *server) read(_ context.Context, uid uint32, mailbox string) (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, err := s.client.Select(mailbox, nil).Wait(); err != nil {
-		return "", fmt.Errorf("select %q: %w", mailbox, err)
-	}
-	msgs, err := s.client.Fetch(imap.UIDSetNum(imap.UID(uid)), &imap.FetchOptions{
-		BodySection: []*imap.FetchItemBodySection{{Peek: true}},
-	}).Collect()
-	if err != nil {
-		return "", fmt.Errorf("fetch: %w", err)
-	}
-	if len(msgs) == 0 || len(msgs[0].BodySection) == 0 {
-		return "", fmt.Errorf("no message with UID %d", uid)
-	}
-	pm, err := parseMessage(msgs[0].BodySection[0].Bytes)
-	if err != nil {
-		return "", fmt.Errorf("parse message: %w", err)
-	}
-	return pm.String(), nil
+	return s.withClient(func(c *imapclient.Client) (string, error) {
+		if _, err := c.Select(mailbox, nil).Wait(); err != nil {
+			return "", fmt.Errorf("select %q: %w", mailbox, err)
+		}
+		msgs, err := c.Fetch(imap.UIDSetNum(imap.UID(uid)), &imap.FetchOptions{
+			BodySection: []*imap.FetchItemBodySection{{Peek: true}},
+		}).Collect()
+		if err != nil {
+			return "", fmt.Errorf("fetch: %w", err)
+		}
+		if len(msgs) == 0 || len(msgs[0].BodySection) == 0 {
+			return "", fmt.Errorf("no message with UID %d", uid)
+		}
+		pm, err := parseMessage(msgs[0].BodySection[0].Bytes)
+		if err != nil {
+			return "", fmt.Errorf("parse message: %w", err)
+		}
+		return pm.String(), nil
+	})
 }
 
 // --- pure helpers (independently testable) ---

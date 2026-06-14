@@ -47,6 +47,17 @@ func main() {
 		return
 	}
 
+	// Diagnostic subcommand: test IMAP reachability (no MCP/agent layers).
+	if len(os.Args) > 1 && os.Args[1] == "mail-check" {
+		out, err := mcpmail.CheckConnection(context.Background())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "mail-check:", err)
+			os.Exit(1)
+		}
+		fmt.Println(out)
+		return
+	}
+
 	if os.Getenv("ANTHROPIC_API_KEY") == "" {
 		fmt.Fprintln(os.Stderr, "error: ANTHROPIC_API_KEY is not set")
 		os.Exit(2)
