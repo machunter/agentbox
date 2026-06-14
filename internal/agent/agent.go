@@ -33,6 +33,7 @@ import (
 	"google.golang.org/adk/tool/preloadmemorytool"
 	"google.golang.org/genai"
 
+	"github.com/burcsahinoglu/agentbox/internal/mcpmail"
 	"github.com/burcsahinoglu/agentbox/internal/memory"
 	"github.com/burcsahinoglu/agentbox/internal/tools"
 )
@@ -53,6 +54,7 @@ const (
 		"You accomplish the user's task by reasoning and by running bash commands with the run_bash tool. " +
 		"You also have structured filesystem tools (list_directory, read_file, search_files) scoped to the " +
 		"workspace; prefer them for inspecting files, and use run_bash for everything else. " +
+		"When email is configured, you have read-only email tools (list_recent_emails, search_emails, read_email). " +
 		"Work in small, verifiable steps: inspect before you act, and check your work. " +
 		"You have a long-term memory of past sessions; relevant memories are provided automatically, " +
 		"and you can search them with the load_memory tool when useful. " +
@@ -125,11 +127,14 @@ func New(ctx context.Context, out io.Writer) (*Agent, error) {
 		toolset = append(toolset, preloadmemorytool.New(), loadmemorytool.New())
 	}
 
-	// Structured filesystem tools, served by a local MCP server (agentbox
-	// launching itself). Best-effort: skip on setup failure.
+	// Connectors served by local MCP servers (agentbox launching itself in a
+	// subcommand). Best-effort: skip any that fail to set up.
 	var toolsets []tool.Toolset
 	if fs := initFileTools(out); fs != nil {
 		toolsets = append(toolsets, fs)
+	}
+	if mail := initMailTools(out); mail != nil {
+		toolsets = append(toolsets, mail)
 	}
 
 	llm, err := llmagent.New(llmagent.Config{
@@ -163,31 +168,44 @@ func New(ctx context.Context, out io.Writer) (*Agent, error) {
 	return &Agent{runner: r, sessions: sessions, mem: mem, out: out}, nil
 }
 
-// initFileTools wires in the local filesystem MCP server: agentbox launches
-// itself in "mcp-fs" mode as a subprocess, jailed to the working directory, and
-// connects over stdio. Best-effort — returns nil (with a notice) on failure so
-// the agent still runs with its other tools.
-func initFileTools(out io.Writer) tool.Toolset {
+// selfMCPToolset launches agentbox in a subcommand as a local MCP server and
+// returns a toolset connected to it over stdio. Best-effort — returns nil (with
+// a notice) on failure so the agent still runs with its other tools.
+func selfMCPToolset(out io.Writer, label string, args ...string) tool.Toolset {
 	self, err := os.Executable()
 	if err != nil {
 		self = os.Args[0]
 	}
-	root, err := os.Getwd()
-	if err != nil {
-		root = "."
-	}
-
-	cmd := exec.Command(self, "mcp-fs", root)
+	cmd := exec.Command(self, args...)
 	cmd.Stderr = os.Stderr // surface server diagnostics
 
 	ts, err := mcptoolset.New(mcptoolset.Config{
 		Transport: &mcp.CommandTransport{Command: cmd},
 	})
 	if err != nil {
-		fmt.Fprintf(out, "[file tools: disabled — %v]\n", err)
+		fmt.Fprintf(out, "[%s: disabled — %v]\n", label, err)
 		return nil
 	}
 	return ts
+}
+
+// initFileTools wires in the local filesystem MCP server, jailed to the working
+// directory.
+func initFileTools(out io.Writer) tool.Toolset {
+	root, err := os.Getwd()
+	if err != nil {
+		root = "."
+	}
+	return selfMCPToolset(out, "file tools", "mcp-fs", root)
+}
+
+// initMailTools wires in the read-only email (IMAP) MCP server, but only when
+// IMAP credentials are configured — otherwise email is silently skipped.
+func initMailTools(out io.Writer) tool.Toolset {
+	if !mcpmail.Configured() {
+		return nil
+	}
+	return selfMCPToolset(out, "email tools", "mcp-mail")
 }
 
 // initMemory builds the local memory service and probes the embedder. It

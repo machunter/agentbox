@@ -39,9 +39,11 @@ adapter.
 - **`internal/mcpfs`** — a small filesystem MCP server (`list_directory`,
   `read_file`, `search_files`), jailed to the workspace. agentbox launches it as
   a subprocess of *itself* (the hidden `mcp-fs` subcommand) and connects via
-  ADK's `mcptoolset` — the pattern for adding external connectors (email,
-  calendar) later. It gives the model cleaner, read-only file primitives
-  alongside `run_bash`.
+  ADK's `mcptoolset` — the pattern for adding external connectors. It gives the
+  model cleaner, read-only file primitives alongside `run_bash`.
+- **`internal/mcpmail`** — a read-only email MCP server over IMAP
+  (`list_recent_emails`, `search_emails`, `read_email`), launched the same way.
+  Enabled only when IMAP credentials are configured; otherwise silently skipped.
 - **`internal/memory`** — a local implementation of ADK's `memory.Service`: it
   embeds session content and stores it in an embedded [chromem-go](https://github.com/philippgille/chromem-go)
   vector database, then retrieves it by semantic similarity. The agent gets
@@ -148,6 +150,20 @@ memory.
 | `AGENTBOX_OLLAMA_URL` | Ollama's default | Embedder base URL (compose sets the service URL). |
 | `AGENTBOX_EMBED_MODEL` | `nomic-embed-text` | Local embedding model. |
 | `AGENTBOX_WORKSPACE` | `.` | Host dir mounted at `/workspace` (compose only). |
+| `AGENTBOX_IMAP_HOST` | — | IMAP server; set (with user/pass) to enable email tools. |
+| `AGENTBOX_IMAP_PORT` | `993` | IMAP port (implicit TLS). |
+| `AGENTBOX_IMAP_USER` | — | IMAP username. |
+| `AGENTBOX_IMAP_PASS` | — | IMAP password (use an app password). |
+
+### Email (read-only)
+
+Set `AGENTBOX_IMAP_HOST`, `AGENTBOX_IMAP_USER`, and `AGENTBOX_IMAP_PASS` (e.g. in
+`.env`) to give the agent read-only email tools: `list_recent_emails`,
+`search_emails`, and `read_email`. Use a provider **app password**, not your main
+password. Sending is intentionally not supported yet — it will come as a
+separate, confirmation-gated capability. Email stays subject to the same privacy
+caveat as everything else: message content the agent reasons over is sent to
+Anthropic at inference time.
 
 ## Safety notes
 
