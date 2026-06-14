@@ -57,6 +57,9 @@ services:
       - AGENTBOX_IMAP_PORT=${AGENTBOX_IMAP_PORT:-993}
       - AGENTBOX_IMAP_USER=${AGENTBOX_IMAP_USER:-}
       - AGENTBOX_IMAP_PASS=${AGENTBOX_IMAP_PASS:-}
+      # Optional read-only calendar (ICS feed URLs, comma-separated) + timezone.
+      - AGENTBOX_ICS_URLS=${AGENTBOX_ICS_URLS:-}
+      - AGENTBOX_TIMEZONE=${AGENTBOX_TIMEZONE:-}
     volumes:
       # Mount the directory the agent should act on (default: current dir).
       - ${AGENTBOX_WORKSPACE:-.}:/workspace

@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/burcsahinoglu/agentbox/internal/agent"
+	"github.com/burcsahinoglu/agentbox/internal/mcpcal"
 	"github.com/burcsahinoglu/agentbox/internal/mcpfs"
 	"github.com/burcsahinoglu/agentbox/internal/mcpmail"
 )
@@ -52,6 +53,27 @@ func main() {
 		out, err := mcpmail.CheckConnection(context.Background())
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "mail-check:", err)
+			os.Exit(1)
+		}
+		fmt.Println(out)
+		return
+	}
+
+	// Internal subcommand: run as the read-only calendar (ICS) MCP server over
+	// stdio. Reads ICS feed URLs from the environment; no API key needed.
+	if len(os.Args) > 1 && os.Args[1] == "mcp-cal" {
+		if err := mcpcal.Serve(context.Background()); err != nil {
+			fmt.Fprintln(os.Stderr, "mcp-cal:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Diagnostic subcommand: test calendar feed reachability (no MCP/agent).
+	if len(os.Args) > 1 && os.Args[1] == "cal-check" {
+		out, err := mcpcal.CheckConnection(context.Background())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "cal-check:", err)
 			os.Exit(1)
 		}
 		fmt.Println(out)
