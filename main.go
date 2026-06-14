@@ -19,6 +19,7 @@ import (
 	"github.com/burcsahinoglu/agentbox/internal/mcpcal"
 	"github.com/burcsahinoglu/agentbox/internal/mcpfs"
 	"github.com/burcsahinoglu/agentbox/internal/mcpmail"
+	"github.com/burcsahinoglu/agentbox/internal/schedule"
 )
 
 func main() {
@@ -85,6 +86,14 @@ func main() {
 		os.Exit(2)
 	}
 
+	// Long-lived scheduler: run configured tasks on their cron schedules.
+	//   agentbox serve              (daemon)
+	//   agentbox run-task <name>    (run one configured task now)
+	if len(os.Args) > 1 && (os.Args[1] == "serve" || os.Args[1] == "run-task") {
+		runScheduler(os.Args[1], os.Args[2:])
+		return
+	}
+
 	task, err := readTask()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -107,6 +116,47 @@ func main() {
 	if err := ag.Run(ctx, task); err != nil {
 		fmt.Fprintln(os.Stderr, "\nerror:", err)
 		os.Exit(1)
+	}
+}
+
+// runScheduler loads the schedule config and either runs the daemon (`serve`)
+// or runs a single named task once (`run-task <name>`).
+func runScheduler(mode string, args []string) {
+	path := os.Getenv("AGENTBOX_SCHEDULE")
+	if path == "" {
+		fmt.Fprintln(os.Stderr, "error: AGENTBOX_SCHEDULE is not set (path to the schedule YAML)")
+		os.Exit(2)
+	}
+	cfg, err := schedule.Load(path)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(2)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Each scheduled run gets a fresh agent (and so a fresh session).
+	factory := func(ctx context.Context, out io.Writer) (schedule.Agent, error) {
+		return agent.New(ctx, out)
+	}
+	sched := schedule.New(cfg, os.Stdout, factory)
+
+	switch mode {
+	case "serve":
+		if err := sched.Serve(ctx); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+	case "run-task":
+		if len(args) < 1 {
+			fmt.Fprintln(os.Stderr, "usage: agentbox run-task <name>")
+			os.Exit(2)
+		}
+		if err := sched.RunOnce(ctx, args[0]); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
 	}
 }
 

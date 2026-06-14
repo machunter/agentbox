@@ -143,6 +143,32 @@ This pairs with `AGENTBOX_NAMESPACE`: a work deployment mounts work dirs, a
 personal one mounts personal dirs, and neither can see the other's files or
 memory.
 
+## Scheduler (long-lived mode)
+
+Instead of one-shot tasks, agentbox can run as a long-lived process that executes
+tasks on cron schedules — e.g. a daily morning briefing that reads your email and
+calendar. Define tasks in a YAML file:
+
+```sh
+cp schedule.example.yaml schedule.yaml   # then edit names, cron specs, prompts
+docker compose up -d                      # starts Ollama + the scheduler
+make compose-logs                         # follow the scheduler's output
+```
+
+Each task is `{name, schedule, prompt}`; `schedule` is standard 5-field cron
+(`0 8 * * *`) or a descriptor (`@daily`). Each run is an independent agent run
+that shares the persistent memory store. Set `AGENTBOX_TIMEZONE` so schedules
+fire in your local time.
+
+Test a task without waiting for its time:
+
+```sh
+make compose-run-task NAME=morning-briefing
+```
+
+Locally (no Docker): `AGENTBOX_SCHEDULE=schedule.yaml agentbox serve` (or
+`agentbox run-task <name>`).
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -158,7 +184,8 @@ memory.
 | `AGENTBOX_IMAP_USER` | — | IMAP username. |
 | `AGENTBOX_IMAP_PASS` | — | IMAP password (use an app password). |
 | `AGENTBOX_ICS_URLS` | — | Calendar ICS feed URLs (comma-separated); enables calendar tools. |
-| `AGENTBOX_TIMEZONE` | `UTC` | Timezone for day boundaries / event times. |
+| `AGENTBOX_TIMEZONE` | `UTC` | Timezone for day boundaries, event times, and cron schedules. |
+| `AGENTBOX_SCHEDULE` | — | Path to the schedule YAML (required for `serve` / `run-task`). |
 
 ### Email (read-only)
 

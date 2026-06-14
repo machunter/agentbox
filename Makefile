@@ -1,6 +1,9 @@
 IMAGE := agentbox
 
-.PHONY: build run test docker-build docker-run compose-run compose-down tidy clean
+.PHONY: build run test docker-build docker-run compose-run compose-serve compose-logs compose-run-task compose-down tidy clean
+
+# Scheduler config file (host path), used by compose-run-task.
+SCHEDULE_FILE ?= schedule.yaml
 
 # Build the local binary.
 build:
@@ -41,6 +44,22 @@ MOUNTS ?=
 # Usage: make compose-run TASK="summarize the files in /workspace"
 compose-run:
 	docker compose run --rm $(addprefix -v ,$(MOUNTS)) agentbox "$(TASK)"
+
+# Start the long-lived scheduler (+ Ollama). Reads ./schedule.yaml.
+compose-serve:
+	docker compose up -d --build
+
+# Follow the scheduler's logs.
+compose-logs:
+	docker compose logs -f agentbox-scheduler
+
+# Run one configured task immediately (handy for testing schedule.yaml).
+# Usage: make compose-run-task NAME=morning-briefing
+compose-run-task:
+	docker compose run --rm \
+		-v "$(CURDIR)/$(SCHEDULE_FILE):/etc/agentbox/schedule.yaml:ro" \
+		-e AGENTBOX_SCHEDULE=/etc/agentbox/schedule.yaml \
+		agentbox run-task "$(NAME)"
 
 # Stop the stack. Add `-v` manually to also drop the memory/model volumes.
 compose-down:
