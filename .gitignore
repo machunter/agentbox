@@ -9,3 +9,6 @@
 .env
 .env.*
 !.env.example
+
+# Local compose customization (extra mounts, etc.)
+docker-compose.override.yml

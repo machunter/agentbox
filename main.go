@@ -16,9 +16,26 @@ import (
 	"syscall"
 
 	"github.com/burcsahinoglu/agentbox/internal/agent"
+	"github.com/burcsahinoglu/agentbox/internal/mcpfs"
 )
 
 func main() {
+	// Internal subcommand: run as the filesystem MCP server over stdio. agentbox
+	// launches itself this way (see internal/agent); it needs no API key, so this
+	// dispatch comes first.
+	//   agentbox mcp-fs [root]   (root defaults to the working directory)
+	if len(os.Args) > 1 && os.Args[1] == "mcp-fs" {
+		root := "."
+		if len(os.Args) > 2 {
+			root = os.Args[2]
+		}
+		if err := mcpfs.Serve(context.Background(), root); err != nil {
+			fmt.Fprintln(os.Stderr, "mcp-fs:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if os.Getenv("ANTHROPIC_API_KEY") == "" {
 		fmt.Fprintln(os.Stderr, "error: ANTHROPIC_API_KEY is not set")
 		os.Exit(2)

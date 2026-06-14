@@ -1,0 +1,16 @@
+# Persistent extra mounts for agentbox.
+#
+# Copy to docker-compose.override.yml (gitignored) to grant the agent access to
+# more host directories on every run — Docker Compose merges this file
+# automatically. For one-off access, prefer `make compose-run MOUNTS=...`.
+#
+# Mount directories UNDER /workspace so the structured file tools (list_directory,
+# read_file, search_files), which are jailed to /workspace, can see them too.
+# The agent refers to them by their container path (e.g. /workspace/notes), not
+# the host path. Use read-only (:ro) for anything the agent shouldn't modify.
+
+services:
+  agentbox:
+    volumes:
+      - ${HOME}/Notes:/workspace/notes
+      - ${HOME}/projects:/workspace/projects:ro
