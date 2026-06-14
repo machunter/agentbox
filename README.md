@@ -36,6 +36,12 @@ adapter.
   cap). Persists the session to memory when the run ends.
 - **`internal/tools`** — the agent's hands-on capability: `run_bash`, which runs
   a shell command in the container and returns its output.
+- **`internal/mcpfs`** — a small filesystem MCP server (`list_directory`,
+  `read_file`, `search_files`), jailed to the workspace. agentbox launches it as
+  a subprocess of *itself* (the hidden `mcp-fs` subcommand) and connects via
+  ADK's `mcptoolset` — the pattern for adding external connectors (email,
+  calendar) later. It gives the model cleaner, read-only file primitives
+  alongside `run_bash`.
 - **`internal/memory`** — a local implementation of ADK's `memory.Service`: it
   embeds session content and stores it in an embedded [chromem-go](https://github.com/philippgille/chromem-go)
   vector database, then retrieves it by semantic similarity. The agent gets

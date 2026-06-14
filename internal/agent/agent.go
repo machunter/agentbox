@@ -16,17 +16,20 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
 	adkanthropic "github.com/Alcova-AI/adk-anthropic-go"
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/loadmemorytool"
+	"google.golang.org/adk/tool/mcptoolset"
 	"google.golang.org/adk/tool/preloadmemorytool"
 	"google.golang.org/genai"
 
@@ -48,6 +51,8 @@ const (
 
 	systemPrompt = "You are agentbox, an autonomous agent running inside a sandboxed Docker container. " +
 		"You accomplish the user's task by reasoning and by running bash commands with the run_bash tool. " +
+		"You also have structured filesystem tools (list_directory, read_file, search_files) scoped to the " +
+		"workspace; prefer them for inspecting files, and use run_bash for everything else. " +
 		"Work in small, verifiable steps: inspect before you act, and check your work. " +
 		"You have a long-term memory of past sessions; relevant memories are provided automatically, " +
 		"and you can search them with the load_memory tool when useful. " +
@@ -120,12 +125,20 @@ func New(ctx context.Context, out io.Writer) (*Agent, error) {
 		toolset = append(toolset, preloadmemorytool.New(), loadmemorytool.New())
 	}
 
+	// Structured filesystem tools, served by a local MCP server (agentbox
+	// launching itself). Best-effort: skip on setup failure.
+	var toolsets []tool.Toolset
+	if fs := initFileTools(out); fs != nil {
+		toolsets = append(toolsets, fs)
+	}
+
 	llm, err := llmagent.New(llmagent.Config{
 		Name:        appName,
 		Description: "An autonomous agent that runs bash commands in a sandboxed container to accomplish a task.",
 		Model:       model,
 		Instruction: systemPrompt,
 		Tools:       toolset,
+		Toolsets:    toolsets,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init agent: %w", err)
@@ -148,6 +161,33 @@ func New(ctx context.Context, out io.Writer) (*Agent, error) {
 	}
 
 	return &Agent{runner: r, sessions: sessions, mem: mem, out: out}, nil
+}
+
+// initFileTools wires in the local filesystem MCP server: agentbox launches
+// itself in "mcp-fs" mode as a subprocess, jailed to the working directory, and
+// connects over stdio. Best-effort — returns nil (with a notice) on failure so
+// the agent still runs with its other tools.
+func initFileTools(out io.Writer) tool.Toolset {
+	self, err := os.Executable()
+	if err != nil {
+		self = os.Args[0]
+	}
+	root, err := os.Getwd()
+	if err != nil {
+		root = "."
+	}
+
+	cmd := exec.Command(self, "mcp-fs", root)
+	cmd.Stderr = os.Stderr // surface server diagnostics
+
+	ts, err := mcptoolset.New(mcptoolset.Config{
+		Transport: &mcp.CommandTransport{Command: cmd},
+	})
+	if err != nil {
+		fmt.Fprintf(out, "[file tools: disabled — %v]\n", err)
+		return nil
+	}
+	return ts
 }
 
 // initMemory builds the local memory service and probes the embedder. It
