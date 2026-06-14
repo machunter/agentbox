@@ -17,6 +17,7 @@ import (
 
 	"github.com/burcsahinoglu/agentbox/internal/agent"
 	"github.com/burcsahinoglu/agentbox/internal/mcpfs"
+	"github.com/burcsahinoglu/agentbox/internal/mcpmail"
 )
 
 func main() {
@@ -31,6 +32,16 @@ func main() {
 		}
 		if err := mcpfs.Serve(context.Background(), root); err != nil {
 			fmt.Fprintln(os.Stderr, "mcp-fs:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Internal subcommand: run as the read-only email (IMAP) MCP server over
+	// stdio. Reads IMAP credentials from the environment; no API key needed.
+	if len(os.Args) > 1 && os.Args[1] == "mcp-mail" {
+		if err := mcpmail.Serve(context.Background()); err != nil {
+			fmt.Fprintln(os.Stderr, "mcp-mail:", err)
 			os.Exit(1)
 		}
 		return

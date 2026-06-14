@@ -51,6 +51,12 @@ services:
       - AGENTBOX_MEMORY_DIR=/data/memory
       # Isolates this deployment's memory (e.g. "personal" vs "work").
       - AGENTBOX_NAMESPACE=${AGENTBOX_NAMESPACE:-default}
+      # Optional read-only email (IMAP). Set these (shell env or .env) to enable
+      # the email tools; leave unset to run without them.
+      - AGENTBOX_IMAP_HOST=${AGENTBOX_IMAP_HOST:-}
+      - AGENTBOX_IMAP_PORT=${AGENTBOX_IMAP_PORT:-993}
+      - AGENTBOX_IMAP_USER=${AGENTBOX_IMAP_USER:-}
+      - AGENTBOX_IMAP_PASS=${AGENTBOX_IMAP_PASS:-}
     volumes:
       # Mount the directory the agent should act on (default: current dir).
       - ${AGENTBOX_WORKSPACE:-.}:/workspace
