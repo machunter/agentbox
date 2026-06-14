@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/Alcova-AI/adk-anthropic-go v0.1.18
 	github.com/anthropics/anthropic-sdk-go v1.50.1
+	github.com/emersion/go-ical v0.0.0-20250609112844-439c63cef608
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8
 	github.com/emersion/go-message v0.18.2
 	github.com/google/jsonschema-go v0.4.2
@@ -38,6 +39,7 @@ require (
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
+	github.com/teambition/rrule-go v1.8.2 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect

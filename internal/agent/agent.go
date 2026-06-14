@@ -33,6 +33,7 @@ import (
 	"google.golang.org/adk/tool/preloadmemorytool"
 	"google.golang.org/genai"
 
+	"github.com/burcsahinoglu/agentbox/internal/mcpcal"
 	"github.com/burcsahinoglu/agentbox/internal/mcpmail"
 	"github.com/burcsahinoglu/agentbox/internal/memory"
 	"github.com/burcsahinoglu/agentbox/internal/tools"
@@ -55,6 +56,7 @@ const (
 		"You also have structured filesystem tools (list_directory, read_file, search_files) scoped to the " +
 		"workspace; prefer them for inspecting files, and use run_bash for everything else. " +
 		"When email is configured, you have read-only email tools (list_recent_emails, search_emails, read_email). " +
+		"When a calendar is configured, you have read-only calendar tools (list_upcoming_events, events_on_day, search_events). " +
 		"Work in small, verifiable steps: inspect before you act, and check your work. " +
 		"You have a long-term memory of past sessions; relevant memories are provided automatically, " +
 		"and you can search them with the load_memory tool when useful. " +
@@ -136,6 +138,9 @@ func New(ctx context.Context, out io.Writer) (*Agent, error) {
 	if mail := initMailTools(out); mail != nil {
 		toolsets = append(toolsets, mail)
 	}
+	if cal := initCalendarTools(out); cal != nil {
+		toolsets = append(toolsets, cal)
+	}
 
 	llm, err := llmagent.New(llmagent.Config{
 		Name:        appName,
@@ -206,6 +211,15 @@ func initMailTools(out io.Writer) tool.Toolset {
 		return nil
 	}
 	return selfMCPToolset(out, "email tools", "mcp-mail")
+}
+
+// initCalendarTools wires in the read-only calendar (ICS) MCP server, but only
+// when at least one calendar feed is configured.
+func initCalendarTools(out io.Writer) tool.Toolset {
+	if !mcpcal.Configured() {
+		return nil
+	}
+	return selfMCPToolset(out, "calendar tools", "mcp-cal")
 }
 
 // initMemory builds the local memory service and probes the embedder. It

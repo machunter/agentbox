@@ -5,7 +5,7 @@
 > treat it as the source of intent, not a frozen spec.
 
 **Status key:** ✅ Shipped (validated live) · 🟡 Shipped (unit-tested, not exercised live) · 🔵 Planned · 🤔 Considering
-**Last updated:** 2026-06-14 · **Branch of record:** `main`
+**Last updated:** 2026-06-14 (calendar connector) · **Branch of record:** `main`
 
 ---
 
@@ -65,8 +65,8 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Filesystem tools (`list_directory`, `read_file`, `search_files`) | ✅ | MCP server jailed to `/workspace` |
 | Multi-directory access | ✅ | `MOUNTS` / compose override; mount under `/workspace` |
 | Email — read (`list_recent_emails`, `search_emails`, `read_email`) | ✅ | IMAP, read-only; enabled only when configured |
-| Email — send | 🔵 | Gated by human confirmation; design pending (§8) |
-| Calendar | 🔵 | Read-only "what's on my day" first; reuses MCP pattern |
+| Calendar — read (`list_upcoming_events`, `events_on_day`, `search_events`) | ✅ | ICS feeds, read-only, recurrence-expanded, all-day aware; validated live |
+| Email — send | 🔵 | Gated by human confirmation; design pending (§8). Deprioritized below calendar. |
 | Long-lived / scheduled operation | 🔵 | Replace one-shot `docker run` (§8) |
 | Local LLM inference | 🤔 | Would remove the inference caveat; large effort, out of scope for now |
 
@@ -100,6 +100,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | `AGENTBOX_OLLAMA_URL`, `AGENTBOX_EMBED_MODEL` | Local embedder. |
 | `AGENTBOX_WORKSPACE`, `MOUNTS` | Host directories the agent can access. |
 | `AGENTBOX_IMAP_HOST/PORT/USER/PASS` | Read-only email (use an app password). |
+| `AGENTBOX_ICS_URLS`, `AGENTBOX_TIMEZONE` | Read-only calendar (ICS feeds) + day-boundary timezone. |
 
 ## 8. Open questions / decisions pending
 
@@ -129,4 +130,6 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Embeddings | Local Ollama `nomic-embed-text` | Keeps memory fully local; rejected hosted Voyage on privacy |
 | Email protocol | IMAP/SMTP (app password) | Universal across providers; no OAuth server; fits local ethos |
 | Email v1 scope | Read-only | Sending is outward-facing; land read first, gate send later |
+| Calendar access | Read-only ICS secret-URL feeds | Google deprecated app-password CalDAV (needs OAuth); ICS secret URL is read-only, no OAuth, universal — consistent with the email decision |
+| Calendar before email-send | Reprioritized | A read-only connector ships value now without resolving the send-confirmation design first |
 | Connector packaging | Self-launched MCP subprocess | One binary, no Node/second artifact; uniform pattern |

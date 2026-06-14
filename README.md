@@ -44,6 +44,9 @@ adapter.
 - **`internal/mcpmail`** — a read-only email MCP server over IMAP
   (`list_recent_emails`, `search_emails`, `read_email`), launched the same way.
   Enabled only when IMAP credentials are configured; otherwise silently skipped.
+- **`internal/mcpcal`** — a read-only calendar MCP server over iCal (ICS) feeds
+  (`list_upcoming_events`, `events_on_day`, `search_events`), expanding recurring
+  events within the query window. Enabled only when feed URLs are configured.
 - **`internal/memory`** — a local implementation of ADK's `memory.Service`: it
   embeds session content and stores it in an embedded [chromem-go](https://github.com/philippgille/chromem-go)
   vector database, then retrieves it by semantic similarity. The agent gets
@@ -154,6 +157,8 @@ memory.
 | `AGENTBOX_IMAP_PORT` | `993` | IMAP port (implicit TLS). |
 | `AGENTBOX_IMAP_USER` | — | IMAP username. |
 | `AGENTBOX_IMAP_PASS` | — | IMAP password (use an app password). |
+| `AGENTBOX_ICS_URLS` | — | Calendar ICS feed URLs (comma-separated); enables calendar tools. |
+| `AGENTBOX_TIMEZONE` | `UTC` | Timezone for day boundaries / event times. |
 
 ### Email (read-only)
 
@@ -164,6 +169,16 @@ password. Sending is intentionally not supported yet — it will come as a
 separate, confirmation-gated capability. Email stays subject to the same privacy
 caveat as everything else: message content the agent reasons over is sent to
 Anthropic at inference time.
+
+### Calendar (read-only)
+
+Set `AGENTBOX_ICS_URLS` to one or more iCal (ICS) feed URLs (comma-separated) to
+give the agent read-only calendar tools: `list_upcoming_events`, `events_on_day`,
+and `search_events` (recurring events are expanded). In Google Calendar, get the
+URL from Settings → your calendar → Integrate calendar → **"Secret address in
+iCal format"** — a private, read-only URL, so no OAuth or app password is needed.
+Set `AGENTBOX_TIMEZONE` (e.g. `America/New_York`) so "today" and event times read
+correctly. Test setup without the agent via `agentbox cal-check`.
 
 ## Safety notes
 
