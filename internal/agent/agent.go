@@ -57,6 +57,7 @@ const (
 		"workspace; prefer them for inspecting files, and use run_bash for everything else. " +
 		"When email is configured, you have read-only email tools (list_recent_emails, search_emails, read_email). " +
 		"When a calendar is configured, you have read-only calendar tools (list_upcoming_events, events_on_day, search_events). " +
+		"You have notes/todo tools (add_todo, list_todos, complete_todo, add_note, search_notes) for capturing and managing the user's todos and notes. " +
 		"Work in small, verifiable steps: inspect before you act, and check your work. " +
 		"You have a long-term memory of past sessions; relevant memories are provided automatically, " +
 		"and you can search them with the load_memory tool when useful. " +
@@ -134,6 +135,9 @@ func New(ctx context.Context, out io.Writer) (*Agent, error) {
 	var toolsets []tool.Toolset
 	if fs := initFileTools(out); fs != nil {
 		toolsets = append(toolsets, fs)
+	}
+	if nt := selfMCPToolset(out, "notes tools", "mcp-notes"); nt != nil {
+		toolsets = append(toolsets, nt)
 	}
 	if mail := initMailTools(out); mail != nil {
 		toolsets = append(toolsets, mail)
@@ -250,12 +254,26 @@ func initMemory(ctx context.Context, cfg config, out io.Writer) *memory.Service 
 	return mem
 }
 
-// Run drives the agentic loop for a single task. It returns when the agent
-// stops calling tools (or the maxTurns safety cap is hit), then persists the
-// session to long-term memory.
+// Run drives the agentic loop for a single text task.
 func (a *Agent) Run(ctx context.Context, task string) error {
-	msg := genai.NewContentFromText(task, genai.RoleUser)
+	return a.runContent(ctx, genai.NewContentFromText(task, genai.RoleUser))
+}
 
+// RunWithImage drives the loop for a prompt plus an image — used for vision
+// capture (e.g. a photo of handwritten notes). The Anthropic model adapter
+// converts the inline image to a vision block.
+func (a *Agent) RunWithImage(ctx context.Context, prompt string, image []byte, mimeType string) error {
+	parts := []*genai.Part{
+		genai.NewPartFromText(prompt),
+		genai.NewPartFromBytes(image, mimeType),
+	}
+	return a.runContent(ctx, genai.NewContentFromParts(parts, genai.RoleUser))
+}
+
+// runContent runs the agentic loop on a prepared message. It returns when the
+// agent stops calling tools (or the maxTurns safety cap is hit), then persists
+// the session to long-term memory.
+func (a *Agent) runContent(ctx context.Context, msg *genai.Content) error {
 	turns := 0
 	for ev, err := range a.runner.Run(ctx, userID, sessionID, msg, agent.RunConfig{}) {
 		if err != nil {

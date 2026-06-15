@@ -15,3 +15,7 @@ docker-compose.override.yml
 
 # Local scheduler config
 schedule.yaml
+
+# Local notes/todo store and capture inbox (default locations under the workspace)
+/notes/
+/captures/

@@ -18,11 +18,13 @@ import (
 // taskTimeout bounds a single scheduled run so a stuck task can't run forever.
 const taskTimeout = 15 * time.Minute
 
-// Task is one scheduled job.
+// Task is one scheduled job. It runs exactly one of Prompt (an agent task) or
+// Command (a built-in, e.g. "process-captures").
 type Task struct {
 	Name     string `yaml:"name"`
 	Schedule string `yaml:"schedule"` // cron spec ("0 8 * * *") or descriptor ("@daily")
 	Prompt   string `yaml:"prompt"`
+	Command  string `yaml:"command"`
 }
 
 // Config is the parsed schedule file.
@@ -61,8 +63,8 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("duplicate task name %q", t.Name)
 		}
 		seen[t.Name] = true
-		if t.Prompt == "" {
-			return fmt.Errorf("task %q: prompt is required", t.Name)
+		if (t.Prompt == "") == (t.Command == "") {
+			return fmt.Errorf("task %q: set exactly one of prompt or command", t.Name)
 		}
 		if _, err := cron.ParseStandard(t.Schedule); err != nil {
 			return fmt.Errorf("task %q: invalid schedule %q: %w", t.Name, t.Schedule, err)
@@ -90,16 +92,21 @@ type Agent interface {
 // Factory builds a fresh Agent for one run, writing its output to out.
 type Factory func(ctx context.Context, out io.Writer) (Agent, error)
 
+// CommandFunc is a built-in task body (e.g. processing the capture inbox).
+type CommandFunc func(ctx context.Context, out io.Writer) error
+
 // Scheduler runs configured tasks on their cron schedules.
 type Scheduler struct {
-	cfg     *Config
-	out     io.Writer
-	factory Factory
+	cfg      *Config
+	out      io.Writer
+	factory  Factory
+	commands map[string]CommandFunc
 }
 
-// New builds a Scheduler from a config, an output sink, and an agent factory.
-func New(cfg *Config, out io.Writer, factory Factory) *Scheduler {
-	return &Scheduler{cfg: cfg, out: out, factory: factory}
+// New builds a Scheduler from a config, an output sink, an agent factory (for
+// prompt tasks), and a registry of built-in commands (for command tasks).
+func New(cfg *Config, out io.Writer, factory Factory, commands map[string]CommandFunc) *Scheduler {
+	return &Scheduler{cfg: cfg, out: out, factory: factory, commands: commands}
 }
 
 // Serve schedules all tasks and runs until ctx is cancelled, then waits for any
@@ -137,6 +144,20 @@ func (s *Scheduler) runTask(ctx context.Context, t Task) {
 
 	runCtx, cancel := context.WithTimeout(ctx, taskTimeout)
 	defer cancel()
+
+	if t.Command != "" {
+		cmd, ok := s.commands[t.Command]
+		if !ok {
+			fmt.Fprintf(s.out, "[%s] task %q: unknown command %q\n", now(), t.Name, t.Command)
+			return
+		}
+		if err := cmd(runCtx, s.out); err != nil {
+			fmt.Fprintf(s.out, "[%s] task %q: failed: %v\n", now(), t.Name, err)
+			return
+		}
+		fmt.Fprintf(s.out, "[%s] task %q: done\n", now(), t.Name)
+		return
+	}
 
 	ag, err := s.factory(runCtx, s.out)
 	if err != nil {

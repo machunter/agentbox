@@ -19,3 +19,8 @@ tasks:
     prompt: >
       Review my calendar for the past week and draft a short summary of what
       I worked on, based on events and any notes in /workspace.
+
+  # A `command` task runs a built-in instead of an agent prompt.
+  - name: process-captures
+    schedule: "*/30 * * * *"       # every 30 minutes
+    command: process-captures      # read dropped photos, file their todos/notes
