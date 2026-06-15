@@ -18,6 +18,7 @@ import (
 
 	"github.com/burcsahinoglu/agentbox/internal/agent"
 	"github.com/burcsahinoglu/agentbox/internal/capture"
+	"github.com/burcsahinoglu/agentbox/internal/llm"
 	"github.com/burcsahinoglu/agentbox/internal/mcpcal"
 	"github.com/burcsahinoglu/agentbox/internal/mcpfs"
 	"github.com/burcsahinoglu/agentbox/internal/mcpmail"
@@ -98,8 +99,9 @@ func main() {
 		return
 	}
 
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		fmt.Fprintln(os.Stderr, "error: ANTHROPIC_API_KEY is not set")
+	// Preflight: the chosen model (AGENTBOX_MODEL) must have its API key set.
+	if err := llm.RequireKey(llm.ConfiguredModel()); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(2)
 	}
 

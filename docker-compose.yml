@@ -14,7 +14,13 @@
 
 # Shared agent environment, referenced by both the one-shot and scheduler services.
 x-agentbox-env: &agentbox-env
-  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY (shell env or .env)}
+  # Model selection (AGENTBOX_MODEL: a claude-* or gemini-* name; default claude-opus-4-8)
+  # and the matching API key. Set at least the key for your chosen model.
+  AGENTBOX_MODEL: ${AGENTBOX_MODEL:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+  GOOGLE_GENAI_USE_VERTEXAI: ${GOOGLE_GENAI_USE_VERTEXAI:-}
   AGENTBOX_OLLAMA_URL: http://ollama:11434/api
   AGENTBOX_EMBED_MODEL: ${AGENTBOX_EMBED_MODEL:-nomic-embed-text}
   AGENTBOX_MEMORY_DIR: /data/memory

@@ -5,7 +5,7 @@
 > treat it as the source of intent, not a frozen spec.
 
 **Status key:** ✅ Shipped (validated live) · 🟡 Shipped (unit-tested, not exercised live) · 🔵 Planned · 🤔 Considering
-**Last updated:** 2026-06-14 (photo capture) · **Branch of record:** `main`
+**Last updated:** 2026-06-14 (multi-model) · **Branch of record:** `main`
 
 ---
 
@@ -40,9 +40,9 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 ## 4. Principles
 
 1. **Local-first for data.** Memory and embeddings stay on the machine. The
-   deliberate, disclosed exception is **LLM inference** (Claude via the Anthropic
-   API): content the agent reasons over is sent to Anthropic at inference time.
-   "Local" applies to memory, not inference.
+   deliberate, disclosed exception is **LLM inference** (Claude via Anthropic, or
+   Gemini via Google): content the agent reasons over is sent to the chosen
+   provider at inference time. "Local" applies to memory, not inference.
 2. **The container is the trust boundary.** The agent executes model-directed
    commands; it runs sandboxed, as a non-root user, seeing only what is mounted.
 3. **Explicit access.** The agent reaches a directory or account only when the
@@ -59,7 +59,8 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 
 | Capability | Status | Notes |
 |---|---|---|
-| Agentic loop (perceive→think→act) on Google ADK Go | ✅ | Claude Opus 4.8 via `adk-anthropic-go`; `maxTurns` safety cap |
+| Agentic loop (perceive→think→act) on Google ADK Go | ✅ | `maxTurns` safety cap |
+| Multiple model providers (Claude, Gemini) | ✅ | `AGENTBOX_MODEL` selects; provider inferred from name; one `model.LLM` interface |
 | `run_bash` tool | ✅ | Shell in the container; 60s per-command timeout |
 | Long-term memory (recall across runs) | ✅ | Auto-recall (`preloadmemorytool`) + on-demand (`loadmemorytool`); persisted after each run |
 | Filesystem tools (`list_directory`, `read_file`, `search_files`) | ✅ | MCP server jailed to `/workspace` |
@@ -79,9 +80,10 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 - **Language/runtime:** Go (1.25+), single binary, Docker.
 - **Agent framework:** Google **ADK Go** (`google.golang.org/adk`) — runner +
   `llmagent`; tools and toolsets registered on the agent.
-- **Model:** Claude **Opus 4.8** (`claude-opus-4-8`) with adaptive thinking, via
-  the community **`adk-anthropic-go`** adapter (fallback: a thin `model.LLM`
-  wrapper over `anthropic-sdk-go`).
+- **Model:** pluggable via `internal/llm` (`AGENTBOX_MODEL`, default Claude
+  **Opus 4.8**). Claude goes through the community **`adk-anthropic-go`** adapter;
+  **Gemini** uses ADK's native `model/gemini`. Both expose ADK's `model.LLM`, so
+  the rest of the agent is provider-agnostic.
 - **Memory:** `internal/memory` implements ADK's `memory.Service` over an embedded
   **chromem-go** vector store (in-process, persisted to disk). Embeddings from a
   local **Ollama** model (`nomic-embed-text`). Namespaced per deployment; searches
@@ -139,6 +141,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 |---|---|---|
 | Agent framework | Google ADK Go | Official, multi-agent + MCP + OTel; avoids a hand-rolled loop as scope grows |
 | Model adapter | `adk-anthropic-go` | Keeps Claude as the model on ADK; fallback wrapper if it lapses |
+| Multiple providers | Selector behind ADK's `model.LLM` (`internal/llm`) | Gemini is native to ADK; provider inferred from model name; everything downstream is provider-agnostic |
 | Vector store | Embedded chromem-go | In-process, single-container; no separate DB service |
 | Embeddings | Local Ollama `nomic-embed-text` | Keeps memory fully local; rejected hosted Voyage on privacy |
 | Email protocol | IMAP/SMTP (app password) | Universal across providers; no OAuth server; fits local ethos |

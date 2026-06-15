@@ -63,6 +63,20 @@ adapter.
 The model is `claude-opus-4-8` with adaptive thinking. A turn cap (`maxTurns`)
 and a per-command timeout keep a run bounded.
 
+## Choosing a model
+
+agentbox works with multiple LLM providers behind one interface. Pick the model
+with `AGENTBOX_MODEL` and set the matching API key:
+
+| `AGENTBOX_MODEL` | Provider | Key |
+|---|---|---|
+| `claude-opus-4-8` (default), `claude-sonnet-4-5`, … | Claude (Anthropic) | `ANTHROPIC_API_KEY` |
+| `gemini-2.5-pro`, `gemini-2.5-flash`, … | Gemini (Google) | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
+
+The provider is inferred from the name (`gemini*` → Gemini, otherwise Claude).
+Everything else — memory, tools, connectors, vision capture — works the same
+regardless of model.
+
 ## Memory & privacy
 
 Embeddings are produced locally by [Ollama](https://ollama.com) (default model:
@@ -76,13 +90,13 @@ embedder, and if Ollama isn't reachable it logs a notice and runs without
 memory rather than failing.
 
 > **One honest caveat:** local embeddings keep your *memory index* on the box,
-> but the **LLM is Claude via the Anthropic API** — so the content the agent
-> reasons over is still sent to Anthropic at inference time. "Local" applies to
-> memory, not inference.
+> but the **LLM runs in the cloud** (Claude via Anthropic, or Gemini via Google)
+> — so the content the agent reasons over is still sent to the provider at
+> inference time. "Local" applies to memory, not inference.
 
 ## Prerequisites
 
-- An Anthropic API key
+- An API key for your chosen model: Anthropic (Claude, default) or Google (Gemini)
 - Go 1.25+ (to run locally) and/or Docker + Docker Compose (to run the stack)
 - For memory: a local Ollama (optional locally; bundled in the compose stack)
 
@@ -213,7 +227,9 @@ Locally (no Docker): `AGENTBOX_SCHEDULE=schedule.yaml agentbox serve` (or
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | — | Required. Claude API key. |
+| `AGENTBOX_MODEL` | `claude-opus-4-8` | Model to use (`claude-*` or `gemini-*`). |
+| `ANTHROPIC_API_KEY` | — | Claude API key (required for `claude-*` models). |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | — | Google API key (required for `gemini-*` models). |
 | `AGENTBOX_NAMESPACE` | `default` | Isolates memory per deployment (e.g. `personal`, `work`). |
 | `AGENTBOX_MEMORY_DIR` | `~/.agentbox/memory` | Where the vector store persists. |
 | `AGENTBOX_OLLAMA_URL` | Ollama's default | Embedder base URL (compose sets the service URL). |
