@@ -19,6 +19,7 @@ import (
 	"github.com/burcsahinoglu/agentbox/internal/mcpcal"
 	"github.com/burcsahinoglu/agentbox/internal/mcpfs"
 	"github.com/burcsahinoglu/agentbox/internal/mcpmail"
+	"github.com/burcsahinoglu/agentbox/internal/mcpnotes"
 	"github.com/burcsahinoglu/agentbox/internal/schedule"
 )
 
@@ -57,6 +58,20 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println(out)
+		return
+	}
+
+	// Internal subcommand: run as the notes/todo MCP server over stdio. Stores
+	// local markdown files; no API key needed.
+	if len(os.Args) > 1 && os.Args[1] == "mcp-notes" {
+		dir := mcpnotes.DefaultDir()
+		if len(os.Args) > 2 {
+			dir = os.Args[2]
+		}
+		if err := mcpnotes.Serve(context.Background(), dir); err != nil {
+			fmt.Fprintln(os.Stderr, "mcp-notes:", err)
+			os.Exit(1)
+		}
 		return
 	}
 

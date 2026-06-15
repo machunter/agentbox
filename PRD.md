@@ -5,7 +5,7 @@
 > treat it as the source of intent, not a frozen spec.
 
 **Status key:** ✅ Shipped (validated live) · 🟡 Shipped (unit-tested, not exercised live) · 🔵 Planned · 🤔 Considering
-**Last updated:** 2026-06-14 (scheduler) · **Branch of record:** `main`
+**Last updated:** 2026-06-14 (notes/todos) · **Branch of record:** `main`
 
 ---
 
@@ -63,6 +63,8 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | `run_bash` tool | ✅ | Shell in the container; 60s per-command timeout |
 | Long-term memory (recall across runs) | ✅ | Auto-recall (`preloadmemorytool`) + on-demand (`loadmemorytool`); persisted after each run |
 | Filesystem tools (`list_directory`, `read_file`, `search_files`) | ✅ | MCP server jailed to `/workspace` |
+| Todos & notes (`add_todo`, `list_todos`, `complete_todo`, `add_note`, `search_notes`) | ✅ | Local markdown store; always on; validated live |
+| Phone capture of todos/notes | 🔵 | Email-to-self → scheduled triage that files captures via the notes tools |
 | Multi-directory access | ✅ | `MOUNTS` / compose override; mount under `/workspace` |
 | Email — read (`list_recent_emails`, `search_emails`, `read_email`) | ✅ | IMAP, read-only; enabled only when configured |
 | Calendar — read (`list_upcoming_events`, `events_on_day`, `search_events`) | ✅ | ICS feeds, read-only, recurrence-expanded, all-day aware; validated live |
@@ -102,6 +104,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | `AGENTBOX_IMAP_HOST/PORT/USER/PASS` | Read-only email (use an app password). |
 | `AGENTBOX_ICS_URLS`, `AGENTBOX_TIMEZONE` | Read-only calendar (ICS feeds) + day-boundary / cron timezone. |
 | `AGENTBOX_SCHEDULE` | Path to the schedule YAML (for `serve` / `run-task`). |
+| `AGENTBOX_NOTES_DIR` | Where todos.md / inbox.md live (default `notes/` under the workspace). |
 
 ## 8. Open questions / decisions pending
 
@@ -143,3 +146,5 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Scheduling | In-process cron daemon (`serve`) | Self-contained, keeps memory warm, one container; over external cron + one-shot |
 | Schedule config | YAML file (tasks: name/schedule/prompt) | Human-editable; mounted in; `run-task` for testing |
 | Scheduled run isolation | Fresh agent + session per fire | Tasks don't bleed into each other; still share durable memory |
+| Notes/todos store | Plain markdown (todos.md/inbox.md) via a dedicated connector | Human-editable + syncable; precise tools beat LLM hand-editing; capture never invokes the LLM when edited directly |
+| Phone capture path | Email-to-self (planned) | Reuses the email connector; no new sync app; works from any device |

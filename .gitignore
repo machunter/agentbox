@@ -15,3 +15,6 @@ docker-compose.override.yml
 
 # Local scheduler config
 schedule.yaml
+
+# Local notes/todo store (default location when the repo is the workspace)
+/notes/

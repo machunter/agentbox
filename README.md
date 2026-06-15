@@ -47,6 +47,10 @@ adapter.
 - **`internal/mcpcal`** — a read-only calendar MCP server over iCal (ICS) feeds
   (`list_upcoming_events`, `events_on_day`, `search_events`), expanding recurring
   events within the query window. Enabled only when feed URLs are configured.
+- **`internal/mcpnotes`** — a local notes/todo MCP server (`add_todo`,
+  `list_todos`, `complete_todo`, `add_note`, `search_notes`) over plain markdown
+  (`todos.md` + `inbox.md`). Always on; the agent files and manages todos/notes
+  for you, and they stay human-editable.
 - **`internal/memory`** — a local implementation of ADK's `memory.Service`: it
   embeds session content and stores it in an embedded [chromem-go](https://github.com/philippgille/chromem-go)
   vector database, then retrieves it by semantic similarity. The agent gets
@@ -143,6 +147,21 @@ This pairs with `AGENTBOX_NAMESPACE`: a work deployment mounts work dirs, a
 personal one mounts personal dirs, and neither can see the other's files or
 memory.
 
+## Todos & notes
+
+agentbox keeps your todos and notes as plain markdown (`todos.md`, `inbox.md`) in
+a notes directory (`AGENTBOX_NOTES_DIR`, default `notes/` under the workspace).
+Just ask the agent in any run and it files them:
+
+```sh
+make compose-run TASK="add a todo to call the dentist, and note that I want to batch the briefings"
+make compose-run TASK="what's on my todo list? mark the dentist one done."
+```
+
+Because they're plain files, you can also edit them directly, and a synced folder
+(iCloud/Dropbox) mounted as the notes dir lets you capture from your phone.
+Timestamps follow `AGENTBOX_TIMEZONE`.
+
 ## Scheduler (long-lived mode)
 
 Instead of one-shot tasks, agentbox can run as a long-lived process that executes
@@ -186,6 +205,7 @@ Locally (no Docker): `AGENTBOX_SCHEDULE=schedule.yaml agentbox serve` (or
 | `AGENTBOX_ICS_URLS` | — | Calendar ICS feed URLs (comma-separated); enables calendar tools. |
 | `AGENTBOX_TIMEZONE` | `UTC` | Timezone for day boundaries, event times, and cron schedules. |
 | `AGENTBOX_SCHEDULE` | — | Path to the schedule YAML (required for `serve` / `run-task`). |
+| `AGENTBOX_NOTES_DIR` | `notes/` (under workspace) | Where todos.md / inbox.md live. |
 
 ### Email (read-only)
 
