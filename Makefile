@@ -4,6 +4,9 @@ IMAGE := agentbox
 #   make publish VERSION=0.1.0
 HUB_IMAGE ?= machunter/agentbox
 VERSION ?= latest
+BUILDER ?= agentbox-builder
+# Also tag :latest, unless VERSION already is latest (avoids a duplicate tag).
+LATEST_TAG := $(if $(filter-out latest,$(VERSION)),-t $(HUB_IMAGE):latest,)
 
 .PHONY: build run test docker-build docker-run compose-run compose-serve compose-logs compose-run-task compose-down publish tidy clean
 
@@ -72,9 +75,13 @@ compose-down:
 
 # Build a multi-arch image and push it to Docker Hub. Run `docker login` first.
 # Usage: make publish VERSION=0.1.0   (also tags :latest)
+# Multi-platform needs the docker-container driver, so we use a dedicated buildx
+# builder (created on first run; the default "docker" driver can't do this).
 publish:
-	docker buildx build --platform linux/amd64,linux/arm64 \
-		-t $(HUB_IMAGE):$(VERSION) -t $(HUB_IMAGE):latest --push .
+	@docker buildx inspect $(BUILDER) >/dev/null 2>&1 || \
+		docker buildx create --name $(BUILDER) --driver docker-container --bootstrap >/dev/null
+	docker buildx build --builder $(BUILDER) --platform linux/amd64,linux/arm64 \
+		-t $(HUB_IMAGE):$(VERSION) $(LATEST_TAG) --push .
 
 clean:
 	rm -f agentbox
