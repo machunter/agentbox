@@ -1,9 +1,35 @@
 package mcpnotes
 
 import (
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 )
+
+func TestStoreConcurrentAdds(t *testing.T) {
+	s := NewStore(t.TempDir())
+	const n = 25
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if err := s.AddTodo(fmt.Sprintf("todo number %d", i), ""); err != nil {
+				t.Errorf("AddTodo: %v", err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	list, err := s.ListTodos(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(list, "- [ ] "); got != n {
+		t.Fatalf("want %d todos after %d concurrent adds, got %d (lost writes)", n, n, got)
+	}
+}
 
 func TestParseTodos(t *testing.T) {
 	content := `# Todos

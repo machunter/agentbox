@@ -25,6 +25,7 @@ x-agentbox-env: &agentbox-env
   AGENTBOX_IMAP_PASS: ${AGENTBOX_IMAP_PASS:-}
   AGENTBOX_ICS_URLS: ${AGENTBOX_ICS_URLS:-}
   AGENTBOX_TIMEZONE: ${AGENTBOX_TIMEZONE:-}
+  AGENTBOX_CAPTURE_DIR: /data/captures
 
 x-agentbox-deps: &agentbox-deps
   ollama:
@@ -67,6 +68,7 @@ services:
     volumes:
       - ${AGENTBOX_WORKSPACE:-.}:/workspace
       - agentbox_memory:/data/memory
+      - ${AGENTBOX_CAPTURE_HOST:-./captures}:/data/captures
 
   # Long-lived scheduler: runs schedule.yaml's tasks on their cron schedules.
   # Started by `docker compose up`.
@@ -81,6 +83,7 @@ services:
     volumes:
       - ${AGENTBOX_WORKSPACE:-.}:/workspace
       - agentbox_memory:/data/memory
+      - ${AGENTBOX_CAPTURE_HOST:-./captures}:/data/captures
       - ${AGENTBOX_SCHEDULE_FILE:-./schedule.yaml}:/etc/agentbox/schedule.yaml:ro
 
 volumes:

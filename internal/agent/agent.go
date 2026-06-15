@@ -254,12 +254,26 @@ func initMemory(ctx context.Context, cfg config, out io.Writer) *memory.Service 
 	return mem
 }
 
-// Run drives the agentic loop for a single task. It returns when the agent
-// stops calling tools (or the maxTurns safety cap is hit), then persists the
-// session to long-term memory.
+// Run drives the agentic loop for a single text task.
 func (a *Agent) Run(ctx context.Context, task string) error {
-	msg := genai.NewContentFromText(task, genai.RoleUser)
+	return a.runContent(ctx, genai.NewContentFromText(task, genai.RoleUser))
+}
 
+// RunWithImage drives the loop for a prompt plus an image — used for vision
+// capture (e.g. a photo of handwritten notes). The Anthropic model adapter
+// converts the inline image to a vision block.
+func (a *Agent) RunWithImage(ctx context.Context, prompt string, image []byte, mimeType string) error {
+	parts := []*genai.Part{
+		genai.NewPartFromText(prompt),
+		genai.NewPartFromBytes(image, mimeType),
+	}
+	return a.runContent(ctx, genai.NewContentFromParts(parts, genai.RoleUser))
+}
+
+// runContent runs the agentic loop on a prepared message. It returns when the
+// agent stops calling tools (or the maxTurns safety cap is hit), then persists
+// the session to long-term memory.
+func (a *Agent) runContent(ctx context.Context, msg *genai.Content) error {
 	turns := 0
 	for ev, err := range a.runner.Run(ctx, userID, sessionID, msg, agent.RunConfig{}) {
 		if err != nil {

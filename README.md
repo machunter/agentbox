@@ -162,6 +162,23 @@ Because they're plain files, you can also edit them directly, and a synced folde
 (iCloud/Dropbox) mounted as the notes dir lets you capture from your phone.
 Timestamps follow `AGENTBOX_TIMEZONE`.
 
+### Capture from a photo
+
+Snap a photo of a handwritten list (or anything with todos/notes) and drop it in
+the **capture inbox** — Claude vision reads it and files the items. Point
+`AGENTBOX_CAPTURE_HOST` at a synced folder (iCloud/Dropbox) so you can drop
+photos from your phone, then:
+
+```sh
+make compose-run TASK=""        # or schedule it (below)
+docker compose run --rm agentbox process-captures
+```
+
+Each image is read, its todos/notes filed via the notes tools, then moved to a
+`processed/` subfolder (failures go to `failed/`). Add a `command: process-captures`
+task to `schedule.yaml` to do this automatically every N minutes. (Note: the
+image is sent to Claude at inference time, like any other content.)
+
 ## Scheduler (long-lived mode)
 
 Instead of one-shot tasks, agentbox can run as a long-lived process that executes
@@ -206,6 +223,8 @@ Locally (no Docker): `AGENTBOX_SCHEDULE=schedule.yaml agentbox serve` (or
 | `AGENTBOX_TIMEZONE` | `UTC` | Timezone for day boundaries, event times, and cron schedules. |
 | `AGENTBOX_SCHEDULE` | — | Path to the schedule YAML (required for `serve` / `run-task`). |
 | `AGENTBOX_NOTES_DIR` | `notes/` (under workspace) | Where todos.md / inbox.md live. |
+| `AGENTBOX_CAPTURE_DIR` | `captures/` (under workspace) | Capture inbox the agent reads photos from. |
+| `AGENTBOX_CAPTURE_HOST` | `./captures` | Host folder mounted as the capture inbox (point at a synced folder). |
 
 ### Email (read-only)
 

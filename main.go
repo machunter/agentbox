@@ -12,10 +12,12 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
 	"github.com/burcsahinoglu/agentbox/internal/agent"
+	"github.com/burcsahinoglu/agentbox/internal/capture"
 	"github.com/burcsahinoglu/agentbox/internal/mcpcal"
 	"github.com/burcsahinoglu/agentbox/internal/mcpfs"
 	"github.com/burcsahinoglu/agentbox/internal/mcpmail"
@@ -101,6 +103,17 @@ func main() {
 		os.Exit(2)
 	}
 
+	// Process the capture inbox: read dropped photos and file their todos/notes.
+	if len(os.Args) > 1 && os.Args[1] == "process-captures" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := processCaptures(ctx, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// Long-lived scheduler: run configured tasks on their cron schedules.
 	//   agentbox serve              (daemon)
 	//   agentbox run-task <name>    (run one configured task now)
@@ -155,7 +168,11 @@ func runScheduler(mode string, args []string) {
 	factory := func(ctx context.Context, out io.Writer) (schedule.Agent, error) {
 		return agent.New(ctx, out)
 	}
-	sched := schedule.New(cfg, os.Stdout, factory)
+	// Built-in commands a task can run instead of an agent prompt.
+	commands := map[string]schedule.CommandFunc{
+		"process-captures": processCaptures,
+	}
+	sched := schedule.New(cfg, os.Stdout, factory, commands)
 
 	switch mode {
 	case "serve":
@@ -173,6 +190,32 @@ func runScheduler(mode string, args []string) {
 			os.Exit(1)
 		}
 	}
+}
+
+// captureDir returns the capture-inbox directory: AGENTBOX_CAPTURE_DIR if set,
+// otherwise "captures" under the working directory (the mounted workspace).
+func captureDir() string {
+	if d := os.Getenv("AGENTBOX_CAPTURE_DIR"); d != "" {
+		return d
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		wd = "."
+	}
+	return filepath.Join(wd, "captures")
+}
+
+// processCaptures runs the agent over each image in the capture inbox.
+func processCaptures(ctx context.Context, out io.Writer) error {
+	factory := func(ctx context.Context, out io.Writer) (capture.Agent, error) {
+		return agent.New(ctx, out)
+	}
+	n, err := capture.Process(ctx, captureDir(), out, factory)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "\ncapture: processed %d image(s)\n", n)
+	return nil
 }
 
 // readTask takes the task from CLI args if present, otherwise from stdin.

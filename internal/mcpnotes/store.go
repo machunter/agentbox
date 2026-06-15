@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 const (
@@ -19,8 +20,12 @@ const (
 	notesFile = "inbox.md"
 )
 
-// Store reads and writes the markdown todo/note files under a directory.
+// Store reads and writes the markdown todo/note files under a directory. The
+// mutex serializes read-modify-write operations, since the agent may invoke
+// several notes tools concurrently (Claude can emit parallel tool calls) and
+// they all reach this one process.
 type Store struct {
+	mu  sync.Mutex
 	dir string
 }
 
@@ -40,6 +45,8 @@ func (s *Store) AddTodo(text, date string) error {
 	if text == "" {
 		return fmt.Errorf("todo text is empty")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	content, err := s.read(todosFile)
 	if err != nil {
 		return err
@@ -48,6 +55,8 @@ func (s *Store) AddTodo(text, date string) error {
 }
 
 func (s *Store) ListTodos(includeDone bool) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	content, err := s.read(todosFile)
 	if err != nil {
 		return "", err
@@ -56,6 +65,8 @@ func (s *Store) ListTodos(includeDone bool) (string, error) {
 }
 
 func (s *Store) CompleteTodo(match string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	content, err := s.read(todosFile)
 	if err != nil {
 		return "", err
@@ -75,6 +86,8 @@ func (s *Store) AddNote(text, timestamp string) error {
 	if text == "" {
 		return fmt.Errorf("note text is empty")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	content, err := s.read(notesFile)
 	if err != nil {
 		return err
@@ -86,6 +99,8 @@ func (s *Store) SearchNotes(query string) (string, error) {
 	if strings.TrimSpace(query) == "" {
 		return "", fmt.Errorf("query is empty")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	content, err := s.read(notesFile)
 	if err != nil {
 		return "", err

@@ -30,10 +30,12 @@ func TestValidate(t *testing.T) {
 	}{
 		{"valid", Config{Tasks: []Task{{Name: "a", Schedule: "0 8 * * *", Prompt: "p"}}}, true},
 		{"descriptor", Config{Tasks: []Task{{Name: "a", Schedule: "@daily", Prompt: "p"}}}, true},
+		{"command", Config{Tasks: []Task{{Name: "a", Schedule: "@hourly", Command: "process-captures"}}}, true},
 		{"empty", Config{}, false},
 		{"no name", Config{Tasks: []Task{{Schedule: "@daily", Prompt: "p"}}}, false},
 		{"dup name", Config{Tasks: []Task{{Name: "a", Schedule: "@daily", Prompt: "p"}, {Name: "a", Schedule: "@daily", Prompt: "q"}}}, false},
-		{"no prompt", Config{Tasks: []Task{{Name: "a", Schedule: "@daily"}}}, false},
+		{"neither prompt nor command", Config{Tasks: []Task{{Name: "a", Schedule: "@daily"}}}, false},
+		{"both prompt and command", Config{Tasks: []Task{{Name: "a", Schedule: "@daily", Prompt: "p", Command: "c"}}}, false},
 		{"bad cron", Config{Tasks: []Task{{Name: "a", Schedule: "not a cron", Prompt: "p"}}}, false},
 	}
 	for _, c := range cases {
@@ -85,7 +87,7 @@ func TestLoadBadFile(t *testing.T) {
 func TestRunOnce(t *testing.T) {
 	cfg := &Config{Tasks: []Task{{Name: "brief", Schedule: "@daily", Prompt: "do the briefing"}}}
 	var prompts []string
-	s := New(cfg, io.Discard, fakeFactory(&prompts))
+	s := New(cfg, io.Discard, fakeFactory(&prompts), nil)
 
 	if err := s.RunOnce(context.Background(), "brief"); err != nil {
 		t.Fatalf("RunOnce: %v", err)
@@ -99,10 +101,26 @@ func TestRunOnce(t *testing.T) {
 	}
 }
 
+func TestRunOnceCommand(t *testing.T) {
+	cfg := &Config{Tasks: []Task{{Name: "captures", Schedule: "@hourly", Command: "process-captures"}}}
+	ran := false
+	commands := map[string]CommandFunc{
+		"process-captures": func(_ context.Context, _ io.Writer) error { ran = true; return nil },
+	}
+	s := New(cfg, io.Discard, nil, commands)
+
+	if err := s.RunOnce(context.Background(), "captures"); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if !ran {
+		t.Error("command task did not invoke the registered command")
+	}
+}
+
 func TestServeStopsOnCancel(t *testing.T) {
 	cfg := &Config{Tasks: []Task{{Name: "a", Schedule: "@daily", Prompt: "p"}}}
 	var prompts []string
-	s := New(cfg, io.Discard, fakeFactory(&prompts))
+	s := New(cfg, io.Discard, fakeFactory(&prompts), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // already cancelled: Serve should schedule, then return promptly
