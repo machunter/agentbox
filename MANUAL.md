@@ -32,10 +32,12 @@ notes, remembers across sessions, and can run tasks on a schedule.
 
 ## 1. What you'll need
 
-- **An Anthropic API key** with credits. Get one at
-  [console.anthropic.com](https://console.anthropic.com); add a payment method /
-  credits under **Plans & Billing** (a key with a zero balance returns a "credit
-  balance is too low" error).
+- **An API key for your model.** By default agentbox uses Claude — get an
+  **Anthropic API key** with credits at
+  [console.anthropic.com](https://console.anthropic.com) (add credits under
+  **Plans & Billing**; a zero balance returns a "credit balance is too low"
+  error). To use **Gemini** instead, get a **Google API key** and set
+  `AGENTBOX_MODEL=gemini-2.5-pro` — see [Choosing a model](#choosing-a-model).
 - **Docker Desktop** (recommended) — runs the whole stack, including a local
   Ollama for memory. *Or* **Go 1.25+** to build and run natively.
 - Optional, per feature: an email **app password**, a calendar **ICS URL**.
@@ -76,6 +78,24 @@ Native equivalent (after `make build`):
 export ANTHROPIC_API_KEY=sk-ant-...
 ./agentbox "list the files here and summarize what this project is"
 ```
+
+## 3b. Choosing a model
+
+agentbox supports Claude and Gemini behind one interface. Set `AGENTBOX_MODEL`
+and the matching API key in `.env`:
+
+```
+# Claude (default) — needs ANTHROPIC_API_KEY
+AGENTBOX_MODEL=claude-opus-4-8
+
+# …or Gemini — needs GEMINI_API_KEY (or GOOGLE_API_KEY)
+AGENTBOX_MODEL=gemini-2.5-pro
+GEMINI_API_KEY=...
+```
+
+The provider is inferred from the name (`gemini*` → Gemini, otherwise Claude).
+You only need the key for the model you pick. Everything else — memory, tools,
+connectors, photo capture — works the same either way.
 
 ## 4. Turn on memory
 
@@ -240,11 +260,11 @@ folders/accounts. This keeps work and personal cleanly separated.
 - **Local:** your long-term memory and the embeddings that index it stay in a
   volume on your machine. The vector store runs in-process; nothing about your
   memory is sent anywhere.
-- **Not local:** Claude is the language model, via the Anthropic API. Anything
-  the agent reasons over in a given step — an email it reads, a file's contents,
-  a photo you capture — is sent to Anthropic at that moment. If that matters for
-  some data, don't mount/connect it, or review Anthropic's data-handling and
-  zero-retention options.
+- **Not local:** the language model runs in the cloud — Claude (Anthropic) or
+  Gemini (Google), depending on `AGENTBOX_MODEL`. Anything the agent reasons over
+  in a given step — an email it reads, a file's contents, a photo you capture —
+  is sent to that provider at that moment. If that matters for some data, don't
+  mount/connect it, or review the provider's data-handling options.
 - **Trust boundary:** the agent runs model-directed shell commands inside the
   container as a non-root user, and only sees what you mount. Mount only what
   you're comfortable letting it read and change.
@@ -272,6 +292,11 @@ services in `docker-compose.yml`.
 
 **"credit balance is too low" (HTTP 400)** — your Anthropic key has no credits.
 Add credits under Plans & Billing.
+
+**Gemini "quota exceeded" / HTTP 429 (RESOURCE_EXHAUSTED)** — the model isn't
+available on your tier. `gemini-2.5-pro` typically needs billing enabled on your
+Google project; `gemini-2.5-flash` works on the free tier. Switch with
+`AGENTBOX_MODEL=gemini-2.5-flash` or enable billing.
 
 **Email won't connect / "unexpected EOF" / login fails** — the app password
 likely has spaces; remove them. Confirm you used an *app* password (not your
@@ -320,7 +345,9 @@ container path.
 
 | Variable | Purpose |
 |---|---|
-| `ANTHROPIC_API_KEY` | **Required.** Claude API key (needs credits). |
+| `AGENTBOX_MODEL` | Model to use (`claude-*` or `gemini-*`). Default `claude-opus-4-8`. |
+| `ANTHROPIC_API_KEY` | Claude API key (needs credits) — for `claude-*` models. |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Google API key — for `gemini-*` models. |
 | `AGENTBOX_NAMESPACE` | Memory isolation (`personal` / `work`). Default `default`. |
 | `AGENTBOX_WORKSPACE` | Host dir mounted at `/workspace`. Default current dir. |
 | `MOUNTS` (make var) | Extra `host:container` mounts for a run. |

@@ -20,8 +20,6 @@ import (
 	"path/filepath"
 	"time"
 
-	adkanthropic "github.com/Alcova-AI/adk-anthropic-go"
-	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
@@ -33,17 +31,17 @@ import (
 	"google.golang.org/adk/tool/preloadmemorytool"
 	"google.golang.org/genai"
 
+	"github.com/burcsahinoglu/agentbox/internal/llm"
 	"github.com/burcsahinoglu/agentbox/internal/mcpcal"
 	"github.com/burcsahinoglu/agentbox/internal/mcpmail"
 	"github.com/burcsahinoglu/agentbox/internal/memory"
 	"github.com/burcsahinoglu/agentbox/internal/tools"
 )
 
-// Default tuning. Opus 4.8 uses adaptive thinking; the adapter defaults to
-// adaptive on adaptive-capable models when no thinking config is set, so we
-// leave it unset.
+// Default tuning. The model is chosen by AGENTBOX_MODEL (see internal/llm),
+// defaulting to Claude Opus 4.8; thinking config is left unset (each provider
+// applies sensible defaults).
 const (
-	modelName = anthropic.ModelClaudeOpus4_8
 	maxTurns  = 25 // safety stop (counted in tool-call rounds) so a loop can't run forever
 	appName   = "agentbox"
 	userID    = "local"
@@ -104,15 +102,13 @@ func envOr(key, def string) string {
 	return def
 }
 
-// New builds an Agent: a Claude-backed ADK agent with the run_bash tool and,
-// when a local embedder is reachable, long-term memory. The model reads
-// ANTHROPIC_API_KEY from the environment.
+// New builds an Agent: an ADK agent (model chosen by AGENTBOX_MODEL — Claude or
+// Gemini) with the run_bash tool and, when a local embedder is reachable,
+// long-term memory. The model's API key is read from the environment.
 func New(ctx context.Context, out io.Writer) (*Agent, error) {
 	cfg := configFromEnv()
 
-	model, err := adkanthropic.NewModel(ctx, modelName, &adkanthropic.Config{
-		APIKey: os.Getenv("ANTHROPIC_API_KEY"),
-	})
+	model, err := llm.New(ctx, llm.ConfiguredModel())
 	if err != nil {
 		return nil, fmt.Errorf("init model: %w", err)
 	}
