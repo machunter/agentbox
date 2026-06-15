@@ -293,6 +293,11 @@ services in `docker-compose.yml`.
 **"credit balance is too low" (HTTP 400)** — your Anthropic key has no credits.
 Add credits under Plans & Billing.
 
+**Gemini "quota exceeded" / HTTP 429 (RESOURCE_EXHAUSTED)** — the model isn't
+available on your tier. `gemini-2.5-pro` typically needs billing enabled on your
+Google project; `gemini-2.5-flash` works on the free tier. Switch with
+`AGENTBOX_MODEL=gemini-2.5-flash` or enable billing.
+
 **Email won't connect / "unexpected EOF" / login fails** — the app password
 likely has spaces; remove them. Confirm you used an *app* password (not your
 account password) and that IMAP is enabled. Diagnose with `mail-check`; for the
