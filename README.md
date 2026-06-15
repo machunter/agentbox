@@ -7,6 +7,10 @@ its sandboxed container — until the task is done, then prints a short summary.
 It remembers past sessions in a local vector store, so context carries across
 runs without anything leaving the machine.
 
+> **New here?** The [User Manual](MANUAL.md) is a step-by-step guide to
+> installing agentbox and turning on each capability. This README is a shorter
+> overview; [PRD.md](PRD.md) covers the design rationale.
+
 ```
 ┌──────────┐  task   ┌──────────────────────────────────────────────┐
 │   you    │ ──────► │  agentbox (Google ADK)                         │
