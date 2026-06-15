@@ -249,6 +249,25 @@ folders/accounts. This keeps work and personal cleanly separated.
   container as a non-root user, and only sees what you mount. Mount only what
   you're comfortable letting it read and change.
 
+## 12b. Publishing the image (optional)
+
+To run the same build on multiple machines, publish it to Docker Hub. No secrets
+are baked into the image (config comes from `.env` at runtime), so the repo can
+be public.
+
+```sh
+docker login -u machunter          # use a Docker Hub access token as the password
+make publish VERSION=0.1.0          # multi-arch build + push as machunter/agentbox
+```
+
+`make publish` builds for `linux/amd64` and `linux/arm64` (so it runs on Intel
+and Apple Silicon) and tags both `:0.1.0` and `:latest`. Override the repo with
+`HUB_IMAGE=youruser/agentbox` if needed.
+
+To make the stack *pull* the published image instead of building locally, set
+`image: machunter/agentbox:latest` on the `agentbox` and `agentbox-scheduler`
+services in `docker-compose.yml`.
+
 ## 13. Troubleshooting
 
 **"credit balance is too low" (HTTP 400)** — your Anthropic key has no credits.

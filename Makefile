@@ -1,6 +1,11 @@
 IMAGE := agentbox
 
-.PHONY: build run test docker-build docker-run compose-run compose-serve compose-logs compose-run-task compose-down tidy clean
+# Docker Hub image for publishing. Override IMAGE/VERSION as needed:
+#   make publish VERSION=0.1.0
+HUB_IMAGE ?= machunter/agentbox
+VERSION ?= latest
+
+.PHONY: build run test docker-build docker-run compose-run compose-serve compose-logs compose-run-task compose-down publish tidy clean
 
 # Scheduler config file (host path), used by compose-run-task.
 SCHEDULE_FILE ?= schedule.yaml
@@ -64,6 +69,12 @@ compose-run-task:
 # Stop the stack. Add `-v` manually to also drop the memory/model volumes.
 compose-down:
 	docker compose down
+
+# Build a multi-arch image and push it to Docker Hub. Run `docker login` first.
+# Usage: make publish VERSION=0.1.0   (also tags :latest)
+publish:
+	docker buildx build --platform linux/amd64,linux/arm64 \
+		-t $(HUB_IMAGE):$(VERSION) -t $(HUB_IMAGE):latest --push .
 
 clean:
 	rm -f agentbox
