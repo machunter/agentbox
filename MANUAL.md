@@ -330,6 +330,18 @@ set `AGENTBOX_TIMEZONE` to your zone (e.g. `America/Los_Angeles`).
 Docker Desktop disk is full or wedged. Restart Docker Desktop and/or run
 `docker system prune` to reclaim space, then retry.
 
+**`resource deadlock avoided` reading a mounted file (macOS)** — the file (e.g.
+`schedule.yaml`) carries macOS extended attributes — common on downloaded or
+copied files (`com.apple.quarantine`, `com.apple.provenance`) — which trip
+Docker's file sharing. Strip them:
+
+```sh
+xattr -c schedule.yaml      # one file
+xattr -cr .                 # or the whole folder (clears .env, schedule.yaml, …)
+```
+
+(Use `xattr -l <file>` to see what's attached.)
+
 **The agent can't see my file** — it's only mounted if it's under `/workspace`
 (or a folder you added via `MOUNTS` / the override file). Refer to it by its
 container path.

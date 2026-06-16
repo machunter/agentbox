@@ -14,8 +14,14 @@ Copy these three files into a folder on the target machine (or copy the whole
 
 ```sh
 cp .env.example .env        # then edit: set AGENTBOX_MODEL + your API key
+xattr -cr .                 # macOS only: strip extended attrs from downloaded files
 docker compose pull         # grab the agentbox + ollama images
 ```
+
+> **macOS:** downloaded/copied files often carry extended attributes that break
+> Docker's file sharing (you'd see `resource deadlock avoided` when the scheduler
+> reads `schedule.yaml`). `xattr -cr .` clears them for the whole folder; for a
+> single file, `xattr -c schedule.yaml`.
 
 ## Run
 
