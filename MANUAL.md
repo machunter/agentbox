@@ -62,6 +62,22 @@ automatically.
 **With Docker (recommended):** nothing else to build — the first run builds the
 image. **Native:** `make build` produces an `agentbox` binary.
 
+### Run from the published image (no source checkout)
+
+If you'd rather not clone the repo, you can run the published Docker image on any
+machine with just Docker. Grab the `deploy/` folder (or its three files) — see
+[deploy/README.md](deploy/README.md):
+
+```sh
+cd deploy
+cp .env.example .env        # set AGENTBOX_MODEL + your API key
+docker compose pull
+docker compose run --rm agentbox "summarize the files in /workspace"
+```
+
+That compose pulls `machunter/agentbox:latest` instead of building from source.
+The rest of this manual applies the same way.
+
 ## 3. Your first task
 
 ```sh
