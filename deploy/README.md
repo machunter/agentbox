@@ -30,6 +30,12 @@ docker compose logs -f agentbox-scheduler   # watch it
 docker compose down                         # stop
 ```
 
+> Use **`docker compose`** directly here — the `make compose-*` shortcuts from
+> the [full repo](https://github.com/machunter/agentbox) are not part of this
+> bundle (there's no Makefile). The mapping: `make compose-run` →
+> `docker compose run --rm agentbox "…"`, `make compose-serve` →
+> `docker compose up -d`, `make compose-down` → `docker compose down`.
+
 ## Notes
 
 - **`.env` lives in this folder** and holds your keys — keep it private; don't
