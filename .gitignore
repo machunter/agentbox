@@ -19,3 +19,8 @@ schedule.yaml
 # Local notes/todo store and capture inbox (default locations under the workspace)
 /notes/
 /captures/
+
+# Deploy-folder runtime artifacts (.env and schedule.yaml are already ignored above)
+/deploy/notes/
+/deploy/captures/
+/deploy/docker-compose.override.yml

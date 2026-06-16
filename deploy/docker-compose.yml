@@ -1,0 +1,92 @@
+# agentbox — run from the published Docker Hub image (no source/build needed).
+#
+# Setup on a fresh machine (only Docker required):
+#   1. Put this file, .env, and (optionally) schedule.yaml in one folder.
+#   2. cp .env.example .env        # then set AGENTBOX_MODEL + your API key
+#   3. docker compose pull         # grab the agentbox + ollama images
+#
+# One-shot task:
+#   docker compose run --rm agentbox "summarize the files in /workspace"
+# Long-lived scheduler (needs schedule.yaml):
+#   cp schedule.example.yaml schedule.yaml   # then edit
+#   docker compose up -d
+#
+# Pin a version with AGENTBOX_IMAGE (default: machunter/agentbox:latest).
+# Memory and the model cache persist in named volumes.
+
+x-agentbox-env: &agentbox-env
+  AGENTBOX_MODEL: ${AGENTBOX_MODEL:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+  GOOGLE_GENAI_USE_VERTEXAI: ${GOOGLE_GENAI_USE_VERTEXAI:-}
+  AGENTBOX_OLLAMA_URL: http://ollama:11434/api
+  AGENTBOX_EMBED_MODEL: ${AGENTBOX_EMBED_MODEL:-nomic-embed-text}
+  AGENTBOX_MEMORY_DIR: /data/memory
+  AGENTBOX_NAMESPACE: ${AGENTBOX_NAMESPACE:-default}
+  AGENTBOX_IMAP_HOST: ${AGENTBOX_IMAP_HOST:-}
+  AGENTBOX_IMAP_PORT: ${AGENTBOX_IMAP_PORT:-993}
+  AGENTBOX_IMAP_USER: ${AGENTBOX_IMAP_USER:-}
+  AGENTBOX_IMAP_PASS: ${AGENTBOX_IMAP_PASS:-}
+  AGENTBOX_ICS_URLS: ${AGENTBOX_ICS_URLS:-}
+  AGENTBOX_TIMEZONE: ${AGENTBOX_TIMEZONE:-}
+  AGENTBOX_CAPTURE_DIR: /data/captures
+
+x-agentbox-deps: &agentbox-deps
+  ollama:
+    condition: service_healthy
+  ollama-init:
+    condition: service_completed_successfully
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["ollama", "pull", "${AGENTBOX_EMBED_MODEL:-nomic-embed-text}"]
+    restart: "no"
+
+  # One-shot agent for ad-hoc tasks. Behind a profile so `docker compose up`
+  # doesn't start it; use `docker compose run --rm agentbox "<task>"`.
+  agentbox:
+    image: ${AGENTBOX_IMAGE:-machunter/agentbox:latest}
+    profiles: ["oneshot"]
+    depends_on: *agentbox-deps
+    environment: *agentbox-env
+    volumes:
+      - ${AGENTBOX_WORKSPACE:-.}:/workspace
+      - agentbox_memory:/data/memory
+      - ${AGENTBOX_CAPTURE_HOST:-./captures}:/data/captures
+
+  # Long-lived scheduler; started by `docker compose up`.
+  agentbox-scheduler:
+    image: ${AGENTBOX_IMAGE:-machunter/agentbox:latest}
+    command: ["serve"]
+    restart: unless-stopped
+    depends_on: *agentbox-deps
+    environment:
+      <<: *agentbox-env
+      AGENTBOX_SCHEDULE: /etc/agentbox/schedule.yaml
+    volumes:
+      - ${AGENTBOX_WORKSPACE:-.}:/workspace
+      - agentbox_memory:/data/memory
+      - ${AGENTBOX_CAPTURE_HOST:-./captures}:/data/captures
+      - ${AGENTBOX_SCHEDULE_FILE:-./schedule.yaml}:/etc/agentbox/schedule.yaml:ro
+
+volumes:
+  ollama_models:
+  agentbox_memory:
