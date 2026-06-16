@@ -114,6 +114,45 @@ func TestClampLimitAndMailbox(t *testing.T) {
 	}
 }
 
+func TestEffectiveSince(t *testing.T) {
+	// No config default, no tool override -> no filter.
+	s := &server{cfg: Config{}}
+	if !s.effectiveSince(0).IsZero() {
+		t.Error("expected zero time when neither config nor tool sets a window")
+	}
+	// Tool override applies.
+	if got := daysSince(s.effectiveSince(7)); got != 7 {
+		t.Errorf("tool since_days=7 -> daysSince=%d, want 7", got)
+	}
+	// Config default applies when tool param is 0.
+	s = &server{cfg: Config{SinceDays: 5}}
+	if got := daysSince(s.effectiveSince(0)); got != 5 {
+		t.Errorf("config default -> daysSince=%d, want 5", got)
+	}
+	// Tool param wins over config default.
+	if got := daysSince(s.effectiveSince(3)); got != 3 {
+		t.Errorf("tool override -> daysSince=%d, want 3", got)
+	}
+}
+
+func TestLoadConfigSinceDays(t *testing.T) {
+	t.Setenv("AGENTBOX_IMAP_HOST", "imap.example.com")
+	t.Setenv("AGENTBOX_IMAP_USER", "me@example.com")
+	t.Setenv("AGENTBOX_IMAP_PASS", "pw")
+
+	t.Setenv("AGENTBOX_EMAIL_SINCE_DAYS", "14")
+	if cfg, _ := LoadConfig(); cfg.SinceDays != 14 {
+		t.Errorf("SinceDays = %d, want 14", cfg.SinceDays)
+	}
+	// Unset / invalid / non-positive -> 0 (no filter).
+	for _, v := range []string{"", "abc", "0", "-3"} {
+		t.Setenv("AGENTBOX_EMAIL_SINCE_DAYS", v)
+		if cfg, _ := LoadConfig(); cfg.SinceDays != 0 {
+			t.Errorf("SinceDays for %q = %d, want 0", v, cfg.SinceDays)
+		}
+	}
+}
+
 func TestLoadConfig(t *testing.T) {
 	for _, k := range []string{"AGENTBOX_IMAP_HOST", "AGENTBOX_IMAP_PORT", "AGENTBOX_IMAP_USER", "AGENTBOX_IMAP_PASS"} {
 		t.Setenv(k, "")

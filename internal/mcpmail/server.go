@@ -13,7 +13,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
@@ -34,6 +36,9 @@ type Config struct {
 	Port string
 	User string
 	Pass string
+	// SinceDays is the default lookback window: list/search only return mail from
+	// the last N days. 0 means no date filter (count-based only).
+	SinceDays int
 }
 
 // LoadConfig reads IMAP settings from the environment. The second return value
@@ -48,8 +53,24 @@ func LoadConfig() (Config, bool) {
 	if c.Port == "" {
 		c.Port = "993"
 	}
+	if n, err := strconv.Atoi(os.Getenv("AGENTBOX_EMAIL_SINCE_DAYS")); err == nil && n > 0 {
+		c.SinceDays = n
+	}
 	configured := c.Host != "" && c.User != "" && c.Pass != ""
 	return c, configured
+}
+
+// effectiveSince resolves the lookback cutoff: a per-call toolDays (> 0) wins,
+// else the configured default. Returns the zero time when no filter applies.
+func (s *server) effectiveSince(toolDays int) time.Time {
+	days := toolDays
+	if days <= 0 {
+		days = s.cfg.SinceDays
+	}
+	if days <= 0 {
+		return time.Time{}
+	}
+	return time.Now().AddDate(0, 0, -days)
 }
 
 // Configured reports whether email is set up in the environment.
@@ -89,7 +110,7 @@ func CheckConnection(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("email not configured (set AGENTBOX_IMAP_HOST/USER/PASS)")
 	}
 	s := &server{cfg: cfg}
-	return s.listRecent(ctx, defaultMailbox, 3)
+	return s.listRecent(ctx, defaultMailbox, 3, 0)
 }
 
 // withClient dials and logs in, runs fn, then logs out and closes — one fresh
@@ -116,14 +137,16 @@ func (s *server) withClient(fn func(*imapclient.Client) (string, error)) (string
 // --- tool inputs ---
 
 type listInput struct {
-	Mailbox string `json:"mailbox" jsonschema:"mailbox to list; empty means INBOX"`
-	Limit   int    `json:"limit" jsonschema:"max messages to return (default 10, max 50)"`
+	Mailbox   string `json:"mailbox" jsonschema:"mailbox to list; empty means INBOX"`
+	Limit     int    `json:"limit" jsonschema:"max messages to return (default 10, max 50)"`
+	SinceDays int    `json:"since_days" jsonschema:"only include mail from the last N days; 0 uses the configured default"`
 }
 
 type searchInput struct {
-	Query   string `json:"query" jsonschema:"text to search for across headers and body"`
-	Mailbox string `json:"mailbox" jsonschema:"mailbox to search; empty means INBOX"`
-	Limit   int    `json:"limit" jsonschema:"max messages to return (default 10, max 50)"`
+	Query     string `json:"query" jsonschema:"text to search for across headers and body"`
+	Mailbox   string `json:"mailbox" jsonschema:"mailbox to search; empty means INBOX"`
+	Limit     int    `json:"limit" jsonschema:"max messages to return (default 10, max 50)"`
+	SinceDays int    `json:"since_days" jsonschema:"only include mail from the last N days; 0 uses the configured default"`
 }
 
 type readInput struct {
@@ -136,7 +159,7 @@ func (s *server) registerTools(srv *mcp.Server) {
 		Name:        "list_recent_emails",
 		Description: "List the most recent emails in a mailbox (newest first): UID, date, from, and subject.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listInput) (*mcp.CallToolResult, any, error) {
-		out, err := s.listRecent(ctx, mailboxOr(in.Mailbox), clampLimit(in.Limit))
+		out, err := s.listRecent(ctx, mailboxOr(in.Mailbox), clampLimit(in.Limit), in.SinceDays)
 		return textResult(out, err), nil, nil
 	})
 
@@ -144,7 +167,7 @@ func (s *server) registerTools(srv *mcp.Server) {
 		Name:        "search_emails",
 		Description: "Search a mailbox for messages matching a text query, returning UID, date, from, and subject (newest first).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in searchInput) (*mcp.CallToolResult, any, error) {
-		out, err := s.search(ctx, in.Query, mailboxOr(in.Mailbox), clampLimit(in.Limit))
+		out, err := s.search(ctx, in.Query, mailboxOr(in.Mailbox), clampLimit(in.Limit), in.SinceDays)
 		return textResult(out, err), nil, nil
 	})
 
@@ -159,7 +182,8 @@ func (s *server) registerTools(srv *mcp.Server) {
 
 // --- IMAP operations (thin; integration-tested with a real server) ---
 
-func (s *server) listRecent(_ context.Context, mailbox string, limit int) (string, error) {
+func (s *server) listRecent(_ context.Context, mailbox string, limit, sinceDays int) (string, error) {
+	since := s.effectiveSince(sinceDays)
 	return s.withClient(func(c *imapclient.Client) (string, error) {
 		sel, err := c.Select(mailbox, nil).Wait()
 		if err != nil {
@@ -168,6 +192,28 @@ func (s *server) listRecent(_ context.Context, mailbox string, limit int) (strin
 		if sel.NumMessages == 0 {
 			return "(mailbox is empty)", nil
 		}
+
+		// With a date filter, find recent UIDs by SINCE; otherwise take the last
+		// `limit` messages by sequence number.
+		if !since.IsZero() {
+			data, err := c.UIDSearch(&imap.SearchCriteria{Since: since}, nil).Wait()
+			if err != nil {
+				return "", fmt.Errorf("search: %w", err)
+			}
+			uids := data.AllUIDs()
+			if len(uids) == 0 {
+				return fmt.Sprintf("(no messages in the last %d days)", daysSince(since)), nil
+			}
+			if len(uids) > limit {
+				uids = uids[len(uids)-limit:]
+			}
+			msgs, err := c.Fetch(imap.UIDSetNum(uids...), &imap.FetchOptions{Envelope: true, UID: true}).Collect()
+			if err != nil {
+				return "", fmt.Errorf("fetch: %w", err)
+			}
+			return formatList(msgs), nil
+		}
+
 		start := uint32(1)
 		if sel.NumMessages > uint32(limit) {
 			start = sel.NumMessages - uint32(limit) + 1
@@ -183,15 +229,20 @@ func (s *server) listRecent(_ context.Context, mailbox string, limit int) (strin
 	})
 }
 
-func (s *server) search(_ context.Context, query, mailbox string, limit int) (string, error) {
+func (s *server) search(_ context.Context, query, mailbox string, limit, sinceDays int) (string, error) {
 	if strings.TrimSpace(query) == "" {
 		return "", fmt.Errorf("query is empty")
 	}
+	since := s.effectiveSince(sinceDays)
 	return s.withClient(func(c *imapclient.Client) (string, error) {
 		if _, err := c.Select(mailbox, nil).Wait(); err != nil {
 			return "", fmt.Errorf("select %q: %w", mailbox, err)
 		}
-		data, err := c.UIDSearch(&imap.SearchCriteria{Text: []string{query}}, nil).Wait()
+		criteria := &imap.SearchCriteria{Text: []string{query}}
+		if !since.IsZero() {
+			criteria.Since = since
+		}
+		data, err := c.UIDSearch(criteria, nil).Wait()
 		if err != nil {
 			return "", fmt.Errorf("search: %w", err)
 		}
@@ -337,6 +388,11 @@ func mailboxOr(m string) string {
 		return defaultMailbox
 	}
 	return m
+}
+
+// daysSince rounds the elapsed days since t, for human-readable messages.
+func daysSince(t time.Time) int {
+	return int(time.Since(t).Hours()/24 + 0.5)
 }
 
 func clampLimit(n int) int {
