@@ -5,7 +5,7 @@
 > treat it as the source of intent, not a frozen spec.
 
 **Status key:** ✅ Shipped (validated live) · 🟡 Shipped (unit-tested, not exercised live) · 🔵 Planned · 🤔 Considering
-**Last updated:** 2026-06-14 (multi-model) · **Branch of record:** `main`
+**Last updated:** 2026-06-16 (email date window) · **Branch of record:** `main`
 
 ---
 
@@ -69,7 +69,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Voice capture of todos/notes | 🔵 | Same inbox, audio → text needs a local Whisper model (no cloud STT); v2 |
 | Multimodal agent input (images) | ✅ | `RunWithImage`; adapter sends inline image as a vision block |
 | Multi-directory access | ✅ | `MOUNTS` / compose override; mount under `/workspace` |
-| Email — read (`list_recent_emails`, `search_emails`, `read_email`) | ✅ | IMAP, read-only; enabled only when configured |
+| Email — read (`list_recent_emails`, `search_emails`, `read_email`) | ✅ | IMAP, read-only; count-bounded, optional date window (`AGENTBOX_EMAIL_SINCE_DAYS` / `since_days`) |
 | Calendar — read (`list_upcoming_events`, `events_on_day`, `search_events`) | ✅ | ICS feeds, read-only, recurrence-expanded, all-day aware; validated live |
 | Long-lived / scheduled operation (`serve`, `run-task`) | ✅ | Cron scheduler runs YAML-configured tasks; run path validated live via `run-task`, timed firing via robfig/cron |
 | Email — send | 🔵 | Gated by human confirmation; design pending (§8) |
@@ -106,6 +106,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | `AGENTBOX_OLLAMA_URL`, `AGENTBOX_EMBED_MODEL` | Local embedder. |
 | `AGENTBOX_WORKSPACE`, `MOUNTS` | Host directories the agent can access. |
 | `AGENTBOX_IMAP_HOST/PORT/USER/PASS` | Read-only email (use an app password). |
+| `AGENTBOX_EMAIL_SINCE_DAYS` | Default lookback window (days) for email; 0 = count-based only. |
 | `AGENTBOX_ICS_URLS`, `AGENTBOX_TIMEZONE` | Read-only calendar (ICS feeds) + day-boundary / cron timezone. |
 | `AGENTBOX_SCHEDULE` | Path to the schedule YAML (for `serve` / `run-task`). |
 | `AGENTBOX_NOTES_DIR` | Where todos.md / inbox.md live (default `notes/` under the workspace). |

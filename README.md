@@ -239,6 +239,7 @@ Locally (no Docker): `AGENTBOX_SCHEDULE=schedule.yaml agentbox serve` (or
 | `AGENTBOX_IMAP_PORT` | `993` | IMAP port (implicit TLS). |
 | `AGENTBOX_IMAP_USER` | — | IMAP username. |
 | `AGENTBOX_IMAP_PASS` | — | IMAP password (use an app password). |
+| `AGENTBOX_EMAIL_SINCE_DAYS` | `0` (no limit) | Default lookback window (days) for the email tools. |
 | `AGENTBOX_ICS_URLS` | — | Calendar ICS feed URLs (comma-separated); enables calendar tools. |
 | `AGENTBOX_TIMEZONE` | `UTC` | Timezone for day boundaries, event times, and cron schedules. |
 | `AGENTBOX_SCHEDULE` | — | Path to the schedule YAML (required for `serve` / `run-task`). |
@@ -252,7 +253,13 @@ Set `AGENTBOX_IMAP_HOST`, `AGENTBOX_IMAP_USER`, and `AGENTBOX_IMAP_PASS` (e.g. i
 `.env`) to give the agent read-only email tools: `list_recent_emails`,
 `search_emails`, and `read_email`. Use a provider **app password**, not your main
 password. Sending is intentionally not supported yet — it will come as a
-separate, confirmation-gated capability. Email stays subject to the same privacy
+separate, confirmation-gated capability.
+
+By default the email tools are count-bounded (most recent N messages). Set
+`AGENTBOX_EMAIL_SINCE_DAYS` to also bound them by time (e.g. `7` = only mail from
+the last week); the agent can override per call with a `since_days` argument.
+
+Email stays subject to the same privacy
 caveat as everything else: message content the agent reasons over is sent to
 Anthropic at inference time.
 

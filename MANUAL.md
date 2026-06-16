@@ -165,6 +165,11 @@ docker compose run --rm --entrypoint agentbox agentbox mail-check
 
 Then ask the agent: `make compose-run TASK="summarize my 5 most recent emails"`.
 
+By default the email tools return the most recent N messages (count-based, no
+date cutoff). To bound by time, set `AGENTBOX_EMAIL_SINCE_DAYS=7` (only mail from
+the last week); the agent can also override per request ("emails from the last 3
+days").
+
 ## 7. Connect your calendar (read-only)
 
 agentbox reads your calendar from an **iCal (ICS) feed URL** — no OAuth needed.
@@ -382,6 +387,7 @@ container path.
 | `AGENTBOX_MEMORY_DIR` | Where the vector store persists. |
 | `AGENTBOX_EMBED_MODEL` / `AGENTBOX_OLLAMA_URL` | Embedding model / Ollama URL. |
 | `AGENTBOX_IMAP_HOST` / `_PORT` / `_USER` / `_PASS` | Email (read-only); app password. |
+| `AGENTBOX_EMAIL_SINCE_DAYS` | Default lookback window (days) for email tools; 0/unset = no date limit. |
 | `AGENTBOX_ICS_URLS` | Calendar ICS feed URLs (comma-separated). |
 | `AGENTBOX_TIMEZONE` | Timezone for day boundaries and cron (e.g. `America/Los_Angeles`). |
 | `AGENTBOX_NOTES_DIR` | Where `todos.md` / `inbox.md` live. |
