@@ -32,6 +32,7 @@ x-agentbox-env: &agentbox-env
   AGENTBOX_EMAIL_SINCE_DAYS: ${AGENTBOX_EMAIL_SINCE_DAYS:-}
   AGENTBOX_TIMEZONE: ${AGENTBOX_TIMEZONE:-}
   AGENTBOX_CAPTURE_DIR: /data/captures
+  AGENTBOX_JOURNAL_DIR: /data/journal
   AGENTBOX_DEBUG: ${AGENTBOX_DEBUG:-}
 
 x-agentbox-deps: &agentbox-deps
@@ -73,6 +74,7 @@ services:
       - ${AGENTBOX_WORKSPACE:-.}:/workspace
       - agentbox_memory:/data/memory
       - ${AGENTBOX_CAPTURE_HOST:-./captures}:/data/captures
+      - ${AGENTBOX_JOURNAL_HOST:-./journal}:/data/journal
 
   # Long-lived scheduler; started by `docker compose up`.
   agentbox-scheduler:
@@ -87,6 +89,7 @@ services:
       - ${AGENTBOX_WORKSPACE:-.}:/workspace
       - agentbox_memory:/data/memory
       - ${AGENTBOX_CAPTURE_HOST:-./captures}:/data/captures
+      - ${AGENTBOX_JOURNAL_HOST:-./journal}:/data/journal
       - ${AGENTBOX_SCHEDULE_FILE:-./schedule.yaml}:/etc/agentbox/schedule.yaml:ro
 
 volumes:

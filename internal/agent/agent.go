@@ -72,7 +72,12 @@ type Agent struct {
 	mem      *memory.Service // nil when memory is disabled/unavailable
 	out      io.Writer
 	log      *slog.Logger
+	answer   strings.Builder // assistant prose from the current run (for journaling)
 }
+
+// Answer returns the assistant's text output from the most recent run, without
+// tool-call traces — suitable for a digest/journal.
+func (a *Agent) Answer() string { return strings.TrimSpace(a.answer.String()) }
 
 // config holds deployment-level settings, read from the environment.
 type config struct {
@@ -283,6 +288,7 @@ func (a *Agent) RunWithImage(ctx context.Context, prompt string, image []byte, m
 // agent stops calling tools (or the maxTurns safety cap is hit), then persists
 // the session to long-term memory.
 func (a *Agent) runContent(ctx context.Context, msg *genai.Content) error {
+	a.answer.Reset()
 	a.log.Debug("run start", "input", describeContent(msg))
 
 	turns := 0
@@ -375,6 +381,8 @@ func (a *Agent) printEvent(ev *session.Event) bool {
 			a.log.Debug("tool result", "name", part.FunctionResponse.Name, "response", clip(argsJSON(part.FunctionResponse.Response)))
 		case part.Text != "":
 			fmt.Fprintln(a.out, part.Text)
+			a.answer.WriteString(part.Text)
+			a.answer.WriteByte('\n')
 			a.log.Debug("model text", "author", ev.Author, "text", clip(part.Text))
 		}
 	}

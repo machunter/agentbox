@@ -5,9 +5,17 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/burcsahinoglu/agentbox/internal/journal"
 )
+
+type answeringAgent struct{ answer string }
+
+func (a answeringAgent) Run(context.Context, string) error { return nil }
+func (a answeringAgent) Answer() string                    { return a.answer }
 
 type fakeAgent struct{ prompts *[]string }
 
@@ -87,7 +95,7 @@ func TestLoadBadFile(t *testing.T) {
 func TestRunOnce(t *testing.T) {
 	cfg := &Config{Tasks: []Task{{Name: "brief", Schedule: "@daily", Prompt: "do the briefing"}}}
 	var prompts []string
-	s := New(cfg, io.Discard, fakeFactory(&prompts), nil)
+	s := New(cfg, io.Discard, fakeFactory(&prompts), nil, nil)
 
 	if err := s.RunOnce(context.Background(), "brief"); err != nil {
 		t.Fatalf("RunOnce: %v", err)
@@ -107,7 +115,7 @@ func TestRunOnceCommand(t *testing.T) {
 	commands := map[string]CommandFunc{
 		"process-captures": func(_ context.Context, _ io.Writer) error { ran = true; return nil },
 	}
-	s := New(cfg, io.Discard, nil, commands)
+	s := New(cfg, io.Discard, nil, commands, nil)
 
 	if err := s.RunOnce(context.Background(), "captures"); err != nil {
 		t.Fatalf("RunOnce: %v", err)
@@ -117,10 +125,32 @@ func TestRunOnceCommand(t *testing.T) {
 	}
 }
 
+func TestRunOnceJournalsAnswer(t *testing.T) {
+	dir := t.TempDir()
+	jnl := journal.New(dir, time.UTC)
+	cfg := &Config{Tasks: []Task{{Name: "brief", Schedule: "@daily", Prompt: "p"}}}
+	factory := func(context.Context, io.Writer) (Agent, error) {
+		return answeringAgent{answer: "All clear today."}, nil
+	}
+	s := New(cfg, io.Discard, factory, nil, jnl)
+
+	if err := s.RunOnce(context.Background(), "brief"); err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "*.md"))
+	if len(files) != 1 {
+		t.Fatalf("want 1 journal file, got %d", len(files))
+	}
+	data, _ := os.ReadFile(files[0])
+	if !strings.Contains(string(data), "All clear today.") || !strings.Contains(string(data), "brief") {
+		t.Errorf("journal missing answer/heading:\n%s", data)
+	}
+}
+
 func TestServeStopsOnCancel(t *testing.T) {
 	cfg := &Config{Tasks: []Task{{Name: "a", Schedule: "@daily", Prompt: "p"}}}
 	var prompts []string
-	s := New(cfg, io.Discard, fakeFactory(&prompts), nil)
+	s := New(cfg, io.Discard, fakeFactory(&prompts), nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // already cancelled: Serve should schedule, then return promptly

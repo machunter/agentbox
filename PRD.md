@@ -5,7 +5,7 @@
 > treat it as the source of intent, not a frozen spec.
 
 **Status key:** ✅ Shipped (validated live) · 🟡 Shipped (unit-tested, not exercised live) · 🔵 Planned · 🤔 Considering
-**Last updated:** 2026-06-17 (debug logging) · **Branch of record:** `main`
+**Last updated:** 2026-06-17 (daily journal) · **Branch of record:** `main`
 
 ---
 
@@ -72,6 +72,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Email — read (`list_recent_emails`, `search_emails`, `read_email`) | ✅ | IMAP, read-only; count-bounded, optional date window (`AGENTBOX_EMAIL_SINCE_DAYS` / `since_days`) |
 | Calendar — read (`list_upcoming_events`, `events_on_day`, `search_events`) | ✅ | ICS feeds, read-only, recurrence-expanded, all-day aware; validated live |
 | Long-lived / scheduled operation (`serve`, `run-task`) | ✅ | Cron scheduler runs YAML-configured tasks; run path validated live via `run-task`, timed firing via robfig/cron |
+| Daily output journal | ✅ | Each scheduled task's result appended to `journal/YYYY-MM-DD.md`; the no-SMTP delivery channel |
 | Email — send | 🔵 | Gated by human confirmation; design pending (§8) |
 | Local LLM inference | 🤔 | Would remove the inference caveat; large effort, out of scope for now |
 
@@ -112,6 +113,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | `AGENTBOX_SCHEDULE` | Path to the schedule YAML (for `serve` / `run-task`). |
 | `AGENTBOX_NOTES_DIR` | Where todos.md / inbox.md live (default `notes/` under the workspace). |
 | `AGENTBOX_CAPTURE_DIR` / `AGENTBOX_CAPTURE_HOST` | Capture inbox the agent reads photos from / the host folder mounted as it. |
+| `AGENTBOX_JOURNAL_DIR` / `AGENTBOX_JOURNAL_HOST` | Daily-output markdown files (one per day) / host mount. |
 
 ## 8. Open questions / decisions pending
 
@@ -119,9 +121,9 @@ user's control, on their own hardware, scoped to what they explicitly grant.
   `RequireConfirmation`) needs an approval path, but the agent is a one-shot,
   non-interactive container today. Resolving this is a prerequisite for SMTP send
   and any other write action.
-- **Scheduler result delivery.** Scheduled runs currently log their output. A
-  real assistant probably wants results delivered (email/push/file) rather than
-  only sitting in logs — pairs naturally with the email-send capability.
+- **Scheduler result delivery.** *(Partly addressed: scheduled results are now
+  written to a daily markdown journal — `journal/YYYY-MM-DD.md`.)* Push/email
+  delivery is still open and pairs naturally with the email-send capability.
 - **Per-run connector cost.** Each scheduled run builds a fresh agent (re-launches
   connector subprocesses, re-probes Ollama). Fine at daily cadence; revisit if
   schedules get frequent.
@@ -154,6 +156,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Scheduling | In-process cron daemon (`serve`) | Self-contained, keeps memory warm, one container; over external cron + one-shot |
 | Schedule config | YAML file (tasks: name/schedule/prompt) | Human-editable; mounted in; `run-task` for testing |
 | Scheduled run isolation | Fresh agent + session per fire | Tasks don't bleed into each other; still share durable memory |
+| Daily-output delivery | Dated markdown journal (no SMTP) | Readable, greppable, syncable; records the assistant's prose answer (not tool traces); SMTP/push later |
 | Notes/todos store | Plain markdown (todos.md/inbox.md) via a dedicated connector | Human-editable + syncable; precise tools beat LLM hand-editing; capture never invokes the LLM when edited directly |
 | Phone capture path | Photo of notes (Claude vision) over email-to-self | Email felt impractical to the user; a snapped photo is more natural. Vision reuses the model we already have (no new service), and moving processed files solves dedup (read-only IMAP couldn't) |
 | Capture inbox processing | Image in the user message (not a tool result) | The adapter's verified image path is on input; per-image fresh agent run keeps captures isolated |
