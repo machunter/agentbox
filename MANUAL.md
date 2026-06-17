@@ -263,6 +263,12 @@ make compose-run-task NAME=morning-briefing
 
 Schedules fire in `AGENTBOX_TIMEZONE`.
 
+**Daily output file.** Each scheduled task's result is appended to
+`journal/YYYY-MM-DD.md` (one file per day) under a timestamped heading — the
+assistant's "delivery" without email/push. Read today's file to catch the
+morning briefing etc. Set the location with `AGENTBOX_JOURNAL_DIR` (host mount
+`AGENTBOX_JOURNAL_HOST` in compose).
+
 ## 11. Personal vs work
 
 Run agentbox separately on each machine and isolate their memory with
@@ -402,6 +408,7 @@ container path.
 | `AGENTBOX_CAPTURE_DIR` / `AGENTBOX_CAPTURE_HOST` | Capture inbox (container path / host folder). |
 | `AGENTBOX_SCHEDULE` / `AGENTBOX_SCHEDULE_FILE` | Schedule YAML path (in-container / host). |
 | `AGENTBOX_DEBUG` | `1` = verbose debug logging to stderr (off by default). |
+| `AGENTBOX_JOURNAL_DIR` / `AGENTBOX_JOURNAL_HOST` | Daily-output markdown files (one per day) / host mount. |
 
 For architecture and design rationale, see [PRD.md](PRD.md); for a shorter
 overview, see [README.md](README.md).

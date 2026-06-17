@@ -223,6 +223,15 @@ make compose-run-task NAME=morning-briefing
 Locally (no Docker): `AGENTBOX_SCHEDULE=schedule.yaml agentbox serve` (or
 `agentbox run-task <name>`).
 
+### Daily output
+
+Each scheduled task's result is appended to a **dated markdown file** —
+`journal/YYYY-MM-DD.md`, one per day — under a timestamped heading (prompt tasks
+record the assistant's prose answer; command tasks record their output). It's the
+assistant's delivery channel without email/push: read today's file to catch up on
+the morning briefing, what it captured, and so on. Location is
+`AGENTBOX_JOURNAL_DIR` (mounted from `AGENTBOX_JOURNAL_HOST` in the stack).
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -247,6 +256,7 @@ Locally (no Docker): `AGENTBOX_SCHEDULE=schedule.yaml agentbox serve` (or
 | `AGENTBOX_NOTES_DIR` | `notes/` (under workspace) | Where todos.md / inbox.md live. |
 | `AGENTBOX_CAPTURE_DIR` | `captures/` (under workspace) | Capture inbox the agent reads photos from. |
 | `AGENTBOX_CAPTURE_HOST` | `./captures` | Host folder mounted as the capture inbox (point at a synced folder). |
+| `AGENTBOX_JOURNAL_DIR` / `AGENTBOX_JOURNAL_HOST` | `journal/` | Daily-output markdown files (one per day) / host mount. |
 
 ### Email (read-only)
 

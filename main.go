@@ -15,9 +15,11 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/burcsahinoglu/agentbox/internal/agent"
 	"github.com/burcsahinoglu/agentbox/internal/capture"
+	"github.com/burcsahinoglu/agentbox/internal/journal"
 	"github.com/burcsahinoglu/agentbox/internal/llm"
 	"github.com/burcsahinoglu/agentbox/internal/mcpcal"
 	"github.com/burcsahinoglu/agentbox/internal/mcpfs"
@@ -174,7 +176,10 @@ func runScheduler(mode string, args []string) {
 	commands := map[string]schedule.CommandFunc{
 		"process-captures": processCaptures,
 	}
-	sched := schedule.New(cfg, os.Stdout, factory, commands)
+	// Daily-output journal: each task's result is appended to a dated markdown
+	// file (the assistant's delivery channel without SMTP).
+	jnl := journal.New(journalDir(), agentTimezone())
+	sched := schedule.New(cfg, os.Stdout, factory, commands, jnl)
 
 	switch mode {
 	case "serve":
@@ -205,6 +210,29 @@ func captureDir() string {
 		wd = "."
 	}
 	return filepath.Join(wd, "captures")
+}
+
+// journalDir returns where the daily output files live: AGENTBOX_JOURNAL_DIR if
+// set, else "journal" under the working directory.
+func journalDir() string {
+	if d := os.Getenv("AGENTBOX_JOURNAL_DIR"); d != "" {
+		return d
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		wd = "."
+	}
+	return filepath.Join(wd, "journal")
+}
+
+// agentTimezone resolves AGENTBOX_TIMEZONE (default UTC).
+func agentTimezone() *time.Location {
+	if tz := os.Getenv("AGENTBOX_TIMEZONE"); tz != "" {
+		if l, err := time.LoadLocation(tz); err == nil {
+			return l
+		}
+	}
+	return time.UTC
 }
 
 // processCaptures runs the agent over each image in the capture inbox.

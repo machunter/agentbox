@@ -5,6 +5,7 @@
 package schedule
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -13,6 +14,8 @@ import (
 
 	cron "github.com/robfig/cron/v3"
 	yaml "go.yaml.in/yaml/v4"
+
+	"github.com/burcsahinoglu/agentbox/internal/journal"
 )
 
 // taskTimeout bounds a single scheduled run so a stuck task can't run forever.
@@ -95,18 +98,34 @@ type Factory func(ctx context.Context, out io.Writer) (Agent, error)
 // CommandFunc is a built-in task body (e.g. processing the capture inbox).
 type CommandFunc func(ctx context.Context, out io.Writer) error
 
+// Answerer is implemented by agents that can report their prose output (no tool
+// traces), used to record a clean entry in the daily journal.
+type Answerer interface{ Answer() string }
+
 // Scheduler runs configured tasks on their cron schedules.
 type Scheduler struct {
 	cfg      *Config
 	out      io.Writer
 	factory  Factory
 	commands map[string]CommandFunc
+	journal  *journal.Journal // nil = no daily-output file
 }
 
 // New builds a Scheduler from a config, an output sink, an agent factory (for
-// prompt tasks), and a registry of built-in commands (for command tasks).
-func New(cfg *Config, out io.Writer, factory Factory, commands map[string]CommandFunc) *Scheduler {
-	return &Scheduler{cfg: cfg, out: out, factory: factory, commands: commands}
+// prompt tasks), a registry of built-in commands (for command tasks), and an
+// optional journal that records each task's output to a daily markdown file.
+func New(cfg *Config, out io.Writer, factory Factory, commands map[string]CommandFunc, jnl *journal.Journal) *Scheduler {
+	return &Scheduler{cfg: cfg, out: out, factory: factory, commands: commands, journal: jnl}
+}
+
+// record appends a task's output to the daily journal, if one is configured.
+func (s *Scheduler) record(name, body string) {
+	if s.journal == nil {
+		return
+	}
+	if err := s.journal.Append(time.Now(), name, body); err != nil {
+		fmt.Fprintf(s.out, "[%s] task %q: journal write failed: %v\n", now(), name, err)
+	}
 }
 
 // Serve schedules all tasks and runs until ctx is cancelled, then waits for any
@@ -151,11 +170,15 @@ func (s *Scheduler) runTask(ctx context.Context, t Task) {
 			fmt.Fprintf(s.out, "[%s] task %q: unknown command %q\n", now(), t.Name, t.Command)
 			return
 		}
-		if err := cmd(runCtx, s.out); err != nil {
+		// Tee the command's output so it's both logged and journaled.
+		var buf bytes.Buffer
+		if err := cmd(runCtx, io.MultiWriter(s.out, &buf)); err != nil {
 			fmt.Fprintf(s.out, "[%s] task %q: failed: %v\n", now(), t.Name, err)
+			s.record(t.Name, "failed: "+err.Error())
 			return
 		}
 		fmt.Fprintf(s.out, "[%s] task %q: done\n", now(), t.Name)
+		s.record(t.Name, buf.String())
 		return
 	}
 
@@ -166,9 +189,14 @@ func (s *Scheduler) runTask(ctx context.Context, t Task) {
 	}
 	if err := ag.Run(runCtx, t.Prompt); err != nil {
 		fmt.Fprintf(s.out, "[%s] task %q: failed: %v\n", now(), t.Name, err)
+		s.record(t.Name, "failed: "+err.Error())
 		return
 	}
 	fmt.Fprintf(s.out, "[%s] task %q: done\n", now(), t.Name)
+	// Record the assistant's prose answer (clean, no tool traces) if available.
+	if a, ok := ag.(Answerer); ok {
+		s.record(t.Name, a.Answer())
+	}
 }
 
 func now() string { return time.Now().Format(time.RFC3339) }

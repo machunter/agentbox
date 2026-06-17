@@ -20,7 +20,11 @@ schedule.yaml
 /notes/
 /captures/
 
+# Local notes/todo store and capture inbox and daily journal
+/journal/
+
 # Deploy-folder runtime artifacts (.env and schedule.yaml are already ignored above)
 /deploy/notes/
 /deploy/captures/
+/deploy/journal/
 /deploy/docker-compose.override.yml
