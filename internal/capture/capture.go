@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/burcsahinoglu/agentbox/internal/dbg"
 )
 
 const extractPrompt = "This is a photo the user took to quickly capture todos and notes. " +
@@ -50,43 +52,58 @@ type Factory func(ctx context.Context, out io.Writer) (Agent, error)
 // the processed/ and failed/ subfolders). Successfully handled files are moved
 // to processed/; failures to failed/. It returns the count processed.
 func Process(ctx context.Context, dir string, out io.Writer, factory Factory) (int, error) {
+	log := dbg.New("capture")
+	log.Debug("scanning capture inbox", "dir", dir)
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
+		log.Debug("cannot read capture dir", "dir", dir, "err", err)
 		return 0, fmt.Errorf("read capture dir: %w", err)
 	}
+	log.Debug("inbox contents", "entries", len(entries))
 
 	processed := 0
 	for _, e := range entries {
 		if e.IsDir() {
+			log.Debug("skip entry", "name", e.Name(), "reason", "directory")
 			continue
 		}
 		mime := imageMIME(e.Name())
 		if mime == "" {
-			continue // skip non-image files
+			// e.g. iPhone .heic photos aren't a supported type and are skipped.
+			log.Debug("skip entry", "name", e.Name(), "reason", "unsupported file type")
+			continue
 		}
 
 		path := filepath.Join(dir, e.Name())
 		fmt.Fprintf(out, "\ncapture: processing %s\n", e.Name())
+		log.Debug("processing image", "name", e.Name(), "mime", mime)
 		if err := processOne(ctx, path, mime, out, factory); err != nil {
 			fmt.Fprintf(out, "capture: %s failed: %v\n", e.Name(), err)
+			log.Debug("image failed", "name", e.Name(), "err", err)
 			moveAside(dir, "failed", e.Name(), out)
 			continue
 		}
+		log.Debug("image done", "name", e.Name())
 		moveAside(dir, "processed", e.Name(), out)
 		processed++
 	}
+	log.Debug("capture run complete", "processed", processed, "scanned", len(entries))
 	return processed, nil
 }
 
 func processOne(ctx context.Context, path, mime string, out io.Writer, factory Factory) error {
+	log := dbg.New("capture")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read image: %w", err)
 	}
+	log.Debug("read image", "path", path, "bytes", len(data), "mime", mime)
 	ag, err := factory(ctx, out)
 	if err != nil {
 		return fmt.Errorf("agent setup: %w", err)
 	}
+	log.Debug("sending image to model for extraction")
 	return ag.RunWithImage(ctx, extractPrompt, data, mime)
 }
 

@@ -15,9 +15,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -31,6 +33,7 @@ import (
 	"google.golang.org/adk/tool/preloadmemorytool"
 	"google.golang.org/genai"
 
+	"github.com/burcsahinoglu/agentbox/internal/dbg"
 	"github.com/burcsahinoglu/agentbox/internal/llm"
 	"github.com/burcsahinoglu/agentbox/internal/mcpcal"
 	"github.com/burcsahinoglu/agentbox/internal/mcpmail"
@@ -68,6 +71,7 @@ type Agent struct {
 	sessions session.Service
 	mem      *memory.Service // nil when memory is disabled/unavailable
 	out      io.Writer
+	log      *slog.Logger
 }
 
 // config holds deployment-level settings, read from the environment.
@@ -107,8 +111,10 @@ func envOr(key, def string) string {
 // long-term memory. The model's API key is read from the environment.
 func New(ctx context.Context, out io.Writer) (*Agent, error) {
 	cfg := configFromEnv()
+	log := dbg.New("agent")
 
-	model, err := llm.New(ctx, llm.ConfiguredModel())
+	modelName := llm.ConfiguredModel()
+	model, err := llm.New(ctx, modelName)
 	if err != nil {
 		return nil, fmt.Errorf("init model: %w", err)
 	}
@@ -142,6 +148,13 @@ func New(ctx context.Context, out io.Writer) (*Agent, error) {
 		toolsets = append(toolsets, cal)
 	}
 
+	log.Debug("agent configured",
+		"model", modelName,
+		"provider", llm.Provider(modelName),
+		"memory", mem != nil,
+		"toolsets", len(toolsets),
+		"namespace", cfg.namespace)
+
 	llm, err := llmagent.New(llmagent.Config{
 		Name:        appName,
 		Description: "An autonomous agent that runs bash commands in a sandboxed container to accomplish a task.",
@@ -170,7 +183,7 @@ func New(ctx context.Context, out io.Writer) (*Agent, error) {
 		return nil, fmt.Errorf("init runner: %w", err)
 	}
 
-	return &Agent{runner: r, sessions: sessions, mem: mem, out: out}, nil
+	return &Agent{runner: r, sessions: sessions, mem: mem, out: out, log: log}, nil
 }
 
 // selfMCPToolset launches agentbox in a subcommand as a local MCP server and
@@ -270,22 +283,49 @@ func (a *Agent) RunWithImage(ctx context.Context, prompt string, image []byte, m
 // agent stops calling tools (or the maxTurns safety cap is hit), then persists
 // the session to long-term memory.
 func (a *Agent) runContent(ctx context.Context, msg *genai.Content) error {
+	a.log.Debug("run start", "input", describeContent(msg))
+
 	turns := 0
 	for ev, err := range a.runner.Run(ctx, userID, sessionID, msg, agent.RunConfig{}) {
 		if err != nil {
+			a.log.Debug("run error", "turn", turns, "err", err)
 			return fmt.Errorf("run: %w", err)
 		}
 		if a.printEvent(ev) {
 			turns++
 			if turns >= maxTurns {
 				fmt.Fprintf(a.out, "\n[stopped after %d tool calls]\n", maxTurns)
+				a.log.Debug("run stopped at turn cap", "maxTurns", maxTurns)
 				break
 			}
 		}
 	}
 
+	a.log.Debug("run complete", "tool_call_rounds", turns)
 	a.persistMemory()
 	return nil
+}
+
+// describeContent summarizes a message for a trace: its text and any non-text
+// parts (e.g. an inline image and its MIME type).
+func describeContent(msg *genai.Content) string {
+	if msg == nil {
+		return "(nil)"
+	}
+	var bits []string
+	for _, p := range msg.Parts {
+		switch {
+		case p == nil:
+			continue
+		case p.Text != "":
+			bits = append(bits, fmt.Sprintf("text(%d chars)", len(p.Text)))
+		case p.InlineData != nil:
+			bits = append(bits, fmt.Sprintf("image(%s, %d bytes)", p.InlineData.MIMEType, len(p.InlineData.Data)))
+		default:
+			bits = append(bits, "part")
+		}
+	}
+	return strings.Join(bits, ", ")
 }
 
 // persistMemory stores the just-finished session in long-term memory. Failures
@@ -310,8 +350,10 @@ func (a *Agent) persistMemory() {
 
 // printEvent writes an event's assistant text and any tool calls to the output,
 // mirroring the original CLI: thinking is not shown, tool results are fed back
-// to the model rather than printed. It returns true if the event contained at
-// least one tool call (used to count turns against the safety cap).
+// to the model rather than printed. With debug logging on, it also traces tool
+// calls AND their results (otherwise invisible), thinking, and text to stderr.
+// It returns true if the event contained at least one tool call (used to count
+// turns against the safety cap).
 func (a *Agent) printEvent(ev *session.Event) bool {
 	if ev == nil || ev.Content == nil {
 		return false
@@ -320,22 +362,39 @@ func (a *Agent) printEvent(ev *session.Event) bool {
 	for _, part := range ev.Content.Parts {
 		switch {
 		case part.Thought:
-			// Don't surface the model's thinking.
+			if part.Text != "" {
+				a.log.Debug("model thinking", "author", ev.Author, "text", clip(part.Text))
+			}
 		case part.FunctionCall != nil:
 			hasToolCall = true
 			fmt.Fprintf(a.out, "\n› %s %s\n", part.FunctionCall.Name, argsJSON(part.FunctionCall.Args))
+			a.log.Debug("tool call", "name", part.FunctionCall.Name, "args", argsJSON(part.FunctionCall.Args))
+		case part.FunctionResponse != nil:
+			// Tool output — fed back to the model, not printed to stdout, but
+			// invaluable in a debug trace.
+			a.log.Debug("tool result", "name", part.FunctionResponse.Name, "response", clip(argsJSON(part.FunctionResponse.Response)))
 		case part.Text != "":
 			fmt.Fprintln(a.out, part.Text)
+			a.log.Debug("model text", "author", ev.Author, "text", clip(part.Text))
 		}
 	}
 	return hasToolCall
 }
 
-// argsJSON renders tool-call arguments compactly for the trace line.
+// argsJSON renders a map compactly as JSON for traces.
 func argsJSON(args map[string]any) string {
 	b, err := json.Marshal(args)
 	if err != nil {
 		return "{}"
 	}
 	return string(b)
+}
+
+// clip bounds very long values so debug traces stay readable.
+func clip(s string) string {
+	const max = 4000
+	if len(s) > max {
+		return s[:max] + fmt.Sprintf("…(+%d chars)", len(s)-max)
+	}
+	return s
 }

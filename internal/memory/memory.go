@@ -12,6 +12,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -19,6 +20,8 @@ import (
 	"google.golang.org/adk/memory"
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
+
+	"github.com/burcsahinoglu/agentbox/internal/dbg"
 )
 
 const (
@@ -31,6 +34,7 @@ type Service struct {
 	coll     *chromem.Collection
 	embedder Embedder
 	topK     int
+	log      *slog.Logger
 }
 
 // Compile-time check that Service satisfies the ADK interface.
@@ -86,7 +90,7 @@ func New(cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("memory: open collection: %w", err)
 	}
 
-	return &Service{coll: coll, embedder: cfg.Embedder, topK: topK}, nil
+	return &Service{coll: coll, embedder: cfg.Embedder, topK: topK, log: dbg.New("memory")}, nil
 }
 
 // AddSessionToMemory embeds each text-bearing event of the session and stores
@@ -135,11 +139,13 @@ func (s *Service) AddSessionToMemory(ctx context.Context, sess session.Session) 
 	}
 
 	if len(ids) == 0 {
+		s.log.Debug("add session: nothing to store", "session", sid)
 		return nil
 	}
 	if err := s.coll.Add(ctx, ids, embeds, metas, contents); err != nil {
 		return fmt.Errorf("memory: add documents: %w", err)
 	}
+	s.log.Debug("add session to memory", "session", sid, "app", app, "user", user, "documents", len(ids))
 	return nil
 }
 
@@ -155,6 +161,7 @@ func (s *Service) SearchMemory(ctx context.Context, req *memory.SearchRequest) (
 	// (and short-circuit an empty store).
 	count := s.coll.Count()
 	if count == 0 {
+		s.log.Debug("memory search: store empty", "query", clip(req.Query))
 		return resp, nil
 	}
 	k := min(s.topK, count)
@@ -179,6 +186,7 @@ func (s *Service) SearchMemory(ctx context.Context, req *memory.SearchRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("memory: query: %w", err)
 	}
+	s.log.Debug("memory search", "query", clip(req.Query), "app", req.AppName, "user", req.UserID, "store_size", count, "hits", len(results))
 
 	for _, r := range results {
 		resp.Memories = append(resp.Memories, memory.Entry{
@@ -209,6 +217,15 @@ func joinText(c *genai.Content) string {
 		b.WriteString(p.Text)
 	}
 	return b.String()
+}
+
+// clip bounds long strings for debug traces.
+func clip(s string) string {
+	const max = 200
+	if len(s) > max {
+		return s[:max] + "…"
+	}
+	return s
 }
 
 // parseTime parses an RFC3339 timestamp, returning the zero time on failure.
