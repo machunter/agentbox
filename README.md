@@ -243,6 +243,7 @@ Locally (no Docker): `AGENTBOX_SCHEDULE=schedule.yaml agentbox serve` (or
 | `AGENTBOX_ICS_URLS` | — | Calendar ICS feed URLs (comma-separated); enables calendar tools. |
 | `AGENTBOX_TIMEZONE` | `UTC` | Timezone for day boundaries, event times, and cron schedules. |
 | `AGENTBOX_SCHEDULE` | — | Path to the schedule YAML (required for `serve` / `run-task`). |
+| `AGENTBOX_DEBUG` | off | Set to `1` for verbose debug logging to stderr. |
 | `AGENTBOX_NOTES_DIR` | `notes/` (under workspace) | Where todos.md / inbox.md live. |
 | `AGENTBOX_CAPTURE_DIR` | `captures/` (under workspace) | Capture inbox the agent reads photos from. |
 | `AGENTBOX_CAPTURE_HOST` | `./captures` | Host folder mounted as the capture inbox (point at a synced folder). |
@@ -272,6 +273,19 @@ URL from Settings → your calendar → Integrate calendar → **"Secret address
 iCal format"** — a private, read-only URL, so no OAuth or app password is needed.
 Set `AGENTBOX_TIMEZONE` (e.g. `America/New_York`) so "today" and event times read
 correctly. Test setup without the agent via `agentbox cal-check`.
+
+## Debugging
+
+Set `AGENTBOX_DEBUG=1` for a verbose trace on **stderr** (stdout stays clean for
+the agent's answer). It logs the selected model/provider, every **tool call and
+its result** (otherwise invisible), the agent's thinking, memory searches and
+their hit counts, and capture decisions (including files skipped as unsupported
+types). Each process reads it independently, so it covers the connector
+subprocesses too.
+
+```sh
+AGENTBOX_DEBUG=1 docker compose run --rm agentbox "summarize my recent emails"
+```
 
 ## Safety notes
 

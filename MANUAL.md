@@ -347,6 +347,14 @@ xattr -cr .                 # or the whole folder (clears .env, schedule.yaml, �
 
 (Use `xattr -l <file>` to see what's attached.)
 
+**Captured photos aren't becoming todos** — run with `AGENTBOX_DEBUG=1` and look
+for `skip entry … reason="unsupported file type"`. The usual cause is **iPhone
+HEIC photos** (only `jpeg/png/gif/webp/pdf` are supported). Set iPhone → Settings
+→ Camera → Formats → **"Most Compatible"** to capture JPEG.
+
+**Turn on verbose logging** — `AGENTBOX_DEBUG=1` traces the model/provider, every
+tool call *and result*, memory searches, and capture decisions to stderr.
+
 **The agent can't see my file** — it's only mounted if it's under `/workspace`
 (or a folder you added via `MOUNTS` / the override file). Refer to it by its
 container path.
@@ -393,6 +401,7 @@ container path.
 | `AGENTBOX_NOTES_DIR` | Where `todos.md` / `inbox.md` live. |
 | `AGENTBOX_CAPTURE_DIR` / `AGENTBOX_CAPTURE_HOST` | Capture inbox (container path / host folder). |
 | `AGENTBOX_SCHEDULE` / `AGENTBOX_SCHEDULE_FILE` | Schedule YAML path (in-container / host). |
+| `AGENTBOX_DEBUG` | `1` = verbose debug logging to stderr (off by default). |
 
 For architecture and design rationale, see [PRD.md](PRD.md); for a shorter
 overview, see [README.md](README.md).

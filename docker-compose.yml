@@ -33,6 +33,7 @@ x-agentbox-env: &agentbox-env
   AGENTBOX_EMAIL_SINCE_DAYS: ${AGENTBOX_EMAIL_SINCE_DAYS:-}
   AGENTBOX_TIMEZONE: ${AGENTBOX_TIMEZONE:-}
   AGENTBOX_CAPTURE_DIR: /data/captures
+  AGENTBOX_DEBUG: ${AGENTBOX_DEBUG:-}
 
 x-agentbox-deps: &agentbox-deps
   ollama:

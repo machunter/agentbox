@@ -5,7 +5,7 @@
 > treat it as the source of intent, not a frozen spec.
 
 **Status key:** ✅ Shipped (validated live) · 🟡 Shipped (unit-tested, not exercised live) · 🔵 Planned · 🤔 Considering
-**Last updated:** 2026-06-16 (email date window) · **Branch of record:** `main`
+**Last updated:** 2026-06-17 (debug logging) · **Branch of record:** `main`
 
 ---
 
@@ -107,6 +107,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | `AGENTBOX_WORKSPACE`, `MOUNTS` | Host directories the agent can access. |
 | `AGENTBOX_IMAP_HOST/PORT/USER/PASS` | Read-only email (use an app password). |
 | `AGENTBOX_EMAIL_SINCE_DAYS` | Default lookback window (days) for email; 0 = count-based only. |
+| `AGENTBOX_DEBUG` | Verbose debug logging to stderr (off by default). |
 | `AGENTBOX_ICS_URLS`, `AGENTBOX_TIMEZONE` | Read-only calendar (ICS feeds) + day-boundary / cron timezone. |
 | `AGENTBOX_SCHEDULE` | Path to the schedule YAML (for `serve` / `run-task`). |
 | `AGENTBOX_NOTES_DIR` | Where todos.md / inbox.md live (default `notes/` under the workspace). |
