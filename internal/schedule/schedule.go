@@ -5,11 +5,11 @@
 package schedule
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	cron "github.com/robfig/cron/v3"
@@ -95,8 +95,11 @@ type Agent interface {
 // Factory builds a fresh Agent for one run, writing its output to out.
 type Factory func(ctx context.Context, out io.Writer) (Agent, error)
 
-// CommandFunc is a built-in task body (e.g. processing the capture inbox).
-type CommandFunc func(ctx context.Context, out io.Writer) error
+// CommandFunc is a built-in task body (e.g. processing the capture inbox). It
+// writes operational detail (full logs) to out, and returns a concise digest
+// line for the daily journal — or "" to record nothing, e.g. a no-op run that
+// did no work and shouldn't clutter the digest.
+type CommandFunc func(ctx context.Context, out io.Writer) (digest string, err error)
 
 // Answerer is implemented by agents that can report their prose output (no tool
 // traces), used to record a clean entry in the daily journal.
@@ -170,15 +173,18 @@ func (s *Scheduler) runTask(ctx context.Context, t Task) {
 			fmt.Fprintf(s.out, "[%s] task %q: unknown command %q\n", now(), t.Name, t.Command)
 			return
 		}
-		// Tee the command's output so it's both logged and journaled.
-		var buf bytes.Buffer
-		if err := cmd(runCtx, io.MultiWriter(s.out, &buf)); err != nil {
+		// Full logs go to s.out; the command returns a concise digest line (or
+		// "") so no-op runs don't clutter the daily journal.
+		digest, err := cmd(runCtx, s.out)
+		if err != nil {
 			fmt.Fprintf(s.out, "[%s] task %q: failed: %v\n", now(), t.Name, err)
 			s.record(t.Name, "failed: "+err.Error())
 			return
 		}
 		fmt.Fprintf(s.out, "[%s] task %q: done\n", now(), t.Name)
-		s.record(t.Name, buf.String())
+		if d := strings.TrimSpace(digest); d != "" {
+			s.record(t.Name, d)
+		}
 		return
 	}
 
@@ -193,9 +199,12 @@ func (s *Scheduler) runTask(ctx context.Context, t Task) {
 		return
 	}
 	fmt.Fprintf(s.out, "[%s] task %q: done\n", now(), t.Name)
-	// Record the assistant's prose answer (clean, no tool traces) if available.
+	// Record the assistant's closing summary (clean prose, no tool traces) if
+	// available and non-empty.
 	if a, ok := ag.(Answerer); ok {
-		s.record(t.Name, a.Answer())
+		if ans := strings.TrimSpace(a.Answer()); ans != "" {
+			s.record(t.Name, ans)
+		}
 	}
 }
 

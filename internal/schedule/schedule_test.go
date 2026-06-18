@@ -113,7 +113,7 @@ func TestRunOnceCommand(t *testing.T) {
 	cfg := &Config{Tasks: []Task{{Name: "captures", Schedule: "@hourly", Command: "process-captures"}}}
 	ran := false
 	commands := map[string]CommandFunc{
-		"process-captures": func(_ context.Context, _ io.Writer) error { ran = true; return nil },
+		"process-captures": func(_ context.Context, _ io.Writer) (string, error) { ran = true; return "", nil },
 	}
 	s := New(cfg, io.Discard, nil, commands, nil)
 
@@ -122,6 +122,41 @@ func TestRunOnceCommand(t *testing.T) {
 	}
 	if !ran {
 		t.Error("command task did not invoke the registered command")
+	}
+}
+
+func TestCommandJournalsOnlyNonEmptyDigest(t *testing.T) {
+	cases := []struct {
+		name      string
+		digest    string
+		wantFiles int
+	}{
+		{"no-op run is not journaled", "", 0},
+		{"meaningful run is journaled", "Filed todos/notes from 2 capture photo(s).", 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			jnl := journal.New(dir, time.UTC)
+			cfg := &Config{Tasks: []Task{{Name: "captures", Schedule: "@hourly", Command: "process-captures"}}}
+			commands := map[string]CommandFunc{
+				"process-captures": func(_ context.Context, _ io.Writer) (string, error) { return c.digest, nil },
+			}
+			s := New(cfg, io.Discard, nil, commands, jnl)
+			if err := s.RunOnce(context.Background(), "captures"); err != nil {
+				t.Fatal(err)
+			}
+			files, _ := filepath.Glob(filepath.Join(dir, "*.md"))
+			if len(files) != c.wantFiles {
+				t.Fatalf("want %d journal file(s), got %d", c.wantFiles, len(files))
+			}
+			if c.wantFiles > 0 {
+				data, _ := os.ReadFile(files[0])
+				if !strings.Contains(string(data), c.digest) {
+					t.Errorf("journal missing digest %q:\n%s", c.digest, data)
+				}
+			}
+		})
 	}
 }
 
