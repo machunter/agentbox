@@ -178,8 +178,9 @@ func runScheduler(mode string, args []string) {
 	}
 	// Daily-output journal: each task's result is appended to a dated markdown
 	// file (the assistant's delivery channel without SMTP).
-	jnl := journal.New(journalDir(), agentTimezone())
-	sched := schedule.New(cfg, os.Stdout, factory, commands, jnl)
+	tz := agentTimezone()
+	jnl := journal.New(journalDir(), tz)
+	sched := schedule.New(cfg, os.Stdout, factory, commands, jnl, tz)
 
 	switch mode {
 	case "serve":

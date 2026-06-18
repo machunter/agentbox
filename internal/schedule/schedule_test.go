@@ -95,7 +95,7 @@ func TestLoadBadFile(t *testing.T) {
 func TestRunOnce(t *testing.T) {
 	cfg := &Config{Tasks: []Task{{Name: "brief", Schedule: "@daily", Prompt: "do the briefing"}}}
 	var prompts []string
-	s := New(cfg, io.Discard, fakeFactory(&prompts), nil, nil)
+	s := New(cfg, io.Discard, fakeFactory(&prompts), nil, nil, time.UTC)
 
 	if err := s.RunOnce(context.Background(), "brief"); err != nil {
 		t.Fatalf("RunOnce: %v", err)
@@ -115,7 +115,7 @@ func TestRunOnceCommand(t *testing.T) {
 	commands := map[string]CommandFunc{
 		"process-captures": func(_ context.Context, _ io.Writer) (string, error) { ran = true; return "", nil },
 	}
-	s := New(cfg, io.Discard, nil, commands, nil)
+	s := New(cfg, io.Discard, nil, commands, nil, time.UTC)
 
 	if err := s.RunOnce(context.Background(), "captures"); err != nil {
 		t.Fatalf("RunOnce: %v", err)
@@ -142,7 +142,7 @@ func TestCommandJournalsOnlyNonEmptyDigest(t *testing.T) {
 			commands := map[string]CommandFunc{
 				"process-captures": func(_ context.Context, _ io.Writer) (string, error) { return c.digest, nil },
 			}
-			s := New(cfg, io.Discard, nil, commands, jnl)
+			s := New(cfg, io.Discard, nil, commands, jnl, time.UTC)
 			if err := s.RunOnce(context.Background(), "captures"); err != nil {
 				t.Fatal(err)
 			}
@@ -167,7 +167,7 @@ func TestRunOnceJournalsAnswer(t *testing.T) {
 	factory := func(context.Context, io.Writer) (Agent, error) {
 		return answeringAgent{answer: "All clear today."}, nil
 	}
-	s := New(cfg, io.Discard, factory, nil, jnl)
+	s := New(cfg, io.Discard, factory, nil, jnl, time.UTC)
 
 	if err := s.RunOnce(context.Background(), "brief"); err != nil {
 		t.Fatal(err)
@@ -185,7 +185,7 @@ func TestRunOnceJournalsAnswer(t *testing.T) {
 func TestServeStopsOnCancel(t *testing.T) {
 	cfg := &Config{Tasks: []Task{{Name: "a", Schedule: "@daily", Prompt: "p"}}}
 	var prompts []string
-	s := New(cfg, io.Discard, fakeFactory(&prompts), nil, nil)
+	s := New(cfg, io.Discard, fakeFactory(&prompts), nil, nil, time.UTC)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // already cancelled: Serve should schedule, then return promptly
@@ -199,5 +199,24 @@ func TestServeStopsOnCancel(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Serve did not return after context cancellation")
+	}
+}
+
+func TestServeUsesConfiguredTimezone(t *testing.T) {
+	loc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		t.Skipf("tzdata unavailable: %v", err)
+	}
+	cfg := &Config{Tasks: []Task{{Name: "a", Schedule: "0 8 * * *", Prompt: "p"}}}
+	var out strings.Builder
+	s := New(cfg, &out, fakeFactory(&[]string{}), nil, nil, loc)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := s.Serve(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "America/Los_Angeles") {
+		t.Errorf("startup line should report the configured timezone:\n%s", out.String())
 	}
 }
