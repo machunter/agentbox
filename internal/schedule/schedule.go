@@ -112,13 +112,16 @@ type Scheduler struct {
 	factory  Factory
 	commands map[string]CommandFunc
 	journal  *journal.Journal // nil = no daily-output file
+	loc      *time.Location   // timezone cron schedules are interpreted in (nil = time.Local)
 }
 
 // New builds a Scheduler from a config, an output sink, an agent factory (for
-// prompt tasks), a registry of built-in commands (for command tasks), and an
-// optional journal that records each task's output to a daily markdown file.
-func New(cfg *Config, out io.Writer, factory Factory, commands map[string]CommandFunc, jnl *journal.Journal) *Scheduler {
-	return &Scheduler{cfg: cfg, out: out, factory: factory, commands: commands, journal: jnl}
+// prompt tasks), a registry of built-in commands (for command tasks), an
+// optional journal that records each task's output to a daily markdown file,
+// and the timezone (loc) that cron schedules are interpreted in (nil =
+// time.Local).
+func New(cfg *Config, out io.Writer, factory Factory, commands map[string]CommandFunc, jnl *journal.Journal, loc *time.Location) *Scheduler {
+	return &Scheduler{cfg: cfg, out: out, factory: factory, commands: commands, journal: jnl, loc: loc}
 }
 
 // record appends a task's output to the daily journal, if one is configured.
@@ -134,14 +137,18 @@ func (s *Scheduler) record(name, body string) {
 // Serve schedules all tasks and runs until ctx is cancelled, then waits for any
 // in-flight task to finish.
 func (s *Scheduler) Serve(ctx context.Context) error {
-	c := cron.New(cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
+	loc := s.loc
+	if loc == nil {
+		loc = time.Local
+	}
+	c := cron.New(cron.WithLocation(loc), cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
 	for _, t := range s.cfg.Tasks {
 		if _, err := c.AddFunc(t.Schedule, func() { s.runTask(ctx, t) }); err != nil {
 			return fmt.Errorf("schedule task %q: %w", t.Name, err)
 		}
 	}
 	c.Start()
-	fmt.Fprintf(s.out, "scheduler: %d task(s) scheduled; waiting for their times\n", len(s.cfg.Tasks))
+	fmt.Fprintf(s.out, "scheduler: %d task(s) scheduled (timezone %s); waiting for their times\n", len(s.cfg.Tasks), loc)
 
 	<-ctx.Done()
 	fmt.Fprintln(s.out, "scheduler: shutting down, waiting for in-flight tasks…")

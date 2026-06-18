@@ -14,8 +14,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/agentbox .
 # Debian slim (not scratch/distroless) because the agent's run_bash tool needs
 # a real shell and core utilities to be useful.
 FROM debian:bookworm-slim
+# tzdata so AGENTBOX_TIMEZONE (e.g. America/Los_Angeles) resolves — without it
+# time.LoadLocation fails and the scheduler/journal silently fall back to UTC.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash coreutils ca-certificates \
+    && apt-get install -y --no-install-recommends bash coreutils ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Run as an unprivileged user — the agent executes model-directed commands, so
