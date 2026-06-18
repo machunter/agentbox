@@ -111,7 +111,7 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "process-captures" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		if err := processCaptures(ctx, os.Stdout); err != nil {
+		if _, err := processCaptures(ctx, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
@@ -235,17 +235,22 @@ func agentTimezone() *time.Location {
 	return time.UTC
 }
 
-// processCaptures runs the agent over each image in the capture inbox.
-func processCaptures(ctx context.Context, out io.Writer) error {
+// processCaptures runs the agent over each image in the capture inbox. Full
+// per-image output goes to out; it returns a one-line digest for the journal
+// only when it actually filed something (so the common no-op run is silent).
+func processCaptures(ctx context.Context, out io.Writer) (string, error) {
 	factory := func(ctx context.Context, out io.Writer) (capture.Agent, error) {
 		return agent.New(ctx, out)
 	}
 	n, err := capture.Process(ctx, captureDir(), out, factory)
 	if err != nil {
-		return err
+		return "", err
 	}
 	fmt.Fprintf(out, "\ncapture: processed %d image(s)\n", n)
-	return nil
+	if n == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf("Filed todos/notes from %d capture photo(s).", n), nil
 }
 
 // readTask takes the task from CLI args if present, otherwise from stdin.

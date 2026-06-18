@@ -75,7 +75,8 @@ type Agent struct {
 	answer   strings.Builder // assistant prose from the current run (for journaling)
 }
 
-// Answer returns the assistant's text output from the most recent run, without
+// Answer returns the assistant's closing summary from the most recent run: the
+// text it produced after its last tool call, with no step-by-step narration or
 // tool-call traces — suitable for a digest/journal.
 func (a *Agent) Answer() string { return strings.TrimSpace(a.answer.String()) }
 
@@ -373,6 +374,10 @@ func (a *Agent) printEvent(ev *session.Event) bool {
 			}
 		case part.FunctionCall != nil:
 			hasToolCall = true
+			// Discard any prose accumulated so far: it was step-by-step
+			// narration before a tool call. Only text after the *last* tool
+			// call (the closing summary) should survive in Answer().
+			a.answer.Reset()
 			fmt.Fprintf(a.out, "\n› %s %s\n", part.FunctionCall.Name, argsJSON(part.FunctionCall.Args))
 			a.log.Debug("tool call", "name", part.FunctionCall.Name, "args", argsJSON(part.FunctionCall.Args))
 		case part.FunctionResponse != nil:

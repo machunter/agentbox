@@ -5,20 +5,61 @@
 # schedule: standard 5-field cron ("min hour dom mon dow") or a descriptor
 #           (@hourly, @daily, @weekly, @monthly). Interpreted in the container's
 #           timezone — set AGENTBOX_TIMEZONE to control it.
-# prompt:   the task given to the agent, same as a one-shot task.
+# prompt:   the task given to the agent, same as a one-shot task. Its closing
+#           summary is appended to the daily journal (the digest you read).
+# command:  a built-in instead of a prompt (currently only process-captures).
+#
+# The three briefings below run at the start, middle, and end of the day. Each
+# reads email + calendar, files actionable emails as todos, and writes a short
+# executive summary to the journal. Tune the wording to taste.
 
 tasks:
   - name: morning-briefing
     schedule: "0 8 * * *"          # every day at 08:00
     prompt: >
-      Summarize my unread emails from the last day and list today's calendar
-      events. Flag anything that looks urgent or needs a reply.
+      It's the start of my day. Do the following, then write me a briefing:
+      (1) List today's calendar events.
+      (2) Read my emails from the last day and pick out anything that needs my
+      attention or a reply.
+      (3) For each email that needs an action from me, file a todo with add_todo
+      — but first call list_todos and skip anything already captured, and don't
+      create todos for newsletters, receipts, or FYI-only mail.
+      Finish with a tight executive summary (a few bullets, no preamble): what
+      matters most today, my meetings, anything urgent in email, and which new
+      todos you just created. This summary is the only thing I'll read, so make
+      it self-contained.
+
+  - name: midday-briefing
+    schedule: "0 13 * * *"         # every day at 13:00
+    prompt: >
+      It's midday. Do the following, then write me a briefing:
+      (1) List my remaining calendar events for the rest of today.
+      (2) Read emails that arrived since this morning and pick out anything that
+      needs my attention or a reply.
+      (3) For each email that needs an action from me, file a todo with add_todo
+      — first call list_todos and skip duplicates; ignore newsletters and FYI mail.
+      Finish with a short executive summary: what's left on my calendar this
+      afternoon, anything urgent that came in, and the new todos you created.
+      Keep it to a few bullets, self-contained.
+
+  - name: evening-briefing
+    schedule: "0 18 * * *"         # every day at 18:00
+    prompt: >
+      It's the end of my day. Do the following, then write me a wrap-up:
+      (1) Read emails that arrived since midday and flag anything needing a reply.
+      (2) For each email that needs an action from me, file a todo with add_todo
+      — first call list_todos and skip duplicates; ignore newsletters and FYI mail.
+      (3) Preview tomorrow's calendar so I know what's coming.
+      (4) Call list_todos and note anything still open.
+      Finish with a short executive summary: what to wrap up tonight, what's open,
+      and what tomorrow looks like. A few bullets, self-contained.
 
   - name: weekly-review
     schedule: "0 17 * * 5"         # Fridays at 17:00
     prompt: >
       Review my calendar for the past week and draft a short summary of what
-      I worked on, based on events and any notes in /workspace.
+      I worked on, based on events and any notes in /workspace. End with a tight
+      executive summary I can skim.
 
   # A `command` task runs a built-in instead of an agent prompt.
   - name: process-captures
