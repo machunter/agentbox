@@ -63,5 +63,5 @@ tasks:
 
   # A `command` task runs a built-in instead of an agent prompt.
   - name: process-captures
-    schedule: "0 8,18 * * *"       # 08:00 and 18:00 — alongside the morning/evening briefings
+    schedule: "50 7,17 * * *"      # 07:50 and 17:50 — just before the morning/evening briefings
     command: process-captures      # read dropped photos, file their todos/notes
