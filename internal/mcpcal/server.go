@@ -11,8 +11,10 @@ package mcpcal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -189,6 +191,17 @@ func (s *server) instances(ctx context.Context, winStart, winEnd time.Time) ([]e
 	return collectInstances(cals, winStart, winEnd, s.cfg.Loc), nil
 }
 
+// transportCause unwraps a *url.Error to its underlying cause, which omits the
+// request URL (and thus the secret feed token). Other errors pass through. This
+// lets fetch errors be surfaced for diagnosis without leaking the secret.
+func transportCause(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return ue.Err
+	}
+	return err
+}
+
 func (s *server) fetchAll(ctx context.Context) ([]*ical.Calendar, error) {
 	cals := make([]*ical.Calendar, 0, len(s.cfg.URLs))
 	for i, u := range s.cfg.URLs {
@@ -198,7 +211,9 @@ func (s *server) fetchAll(ctx context.Context) ([]*ical.Calendar, error) {
 		}
 		resp, err := s.client.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("calendar %d: fetch failed", i+1) // don't leak the secret URL
+			// Surface the transport cause (DNS, TLS, timeout) for diagnosis, but
+			// strip the URL — it carries the secret feed token.
+			return nil, fmt.Errorf("calendar %d: fetch failed: %v", i+1, transportCause(err))
 		}
 		cal, derr := func() (*ical.Calendar, error) {
 			defer resp.Body.Close()
