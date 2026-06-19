@@ -56,7 +56,8 @@ const (
 		"You accomplish the user's task by reasoning and by running bash commands with the run_bash tool. " +
 		"You also have structured filesystem tools (list_directory, read_file, search_files) scoped to the " +
 		"workspace; prefer them for inspecting files, and use run_bash for everything else. " +
-		"When email is configured, you have read-only email tools (list_recent_emails, search_emails, read_email). " +
+		"When email is configured, you have read-only email tools (list_mailboxes, list_recent_emails, search_emails, read_email); " +
+		"mailbox names like \"Sent\", \"Drafts\", or \"Trash\" resolve to the provider's real folder automatically, so you can scan sent mail to check whether you already replied — e.g. to find a reply that resolves an open todo and then complete_todo it. " +
 		"When a calendar is configured, you have read-only calendar tools (list_upcoming_events, events_on_day, search_events). " +
 		"You have notes/todo tools (add_todo, list_todos, complete_todo, add_note, search_notes) for capturing and managing the user's todos and notes. " +
 		"Work in small, verifiable steps: inspect before you act, and check your work. " +

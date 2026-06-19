@@ -170,6 +170,13 @@ date cutoff). To bound by time, set `AGENTBOX_EMAIL_SINCE_DAYS=7` (only mail fro
 the last week); the agent can also override per request ("emails from the last 3
 days").
 
+The agent can also scan folders other than the inbox. Mailbox aliases —
+`Sent`, `Drafts`, `Trash`, `Junk`, `Archive` — resolve to your provider's actual
+folder name (which varies: `Sent`, `Sent Items`, `[Gmail]/Sent Mail`, …) via the
+IMAP SPECIAL-USE attribute, and `list_mailboxes` shows every folder with its
+role. So you can ask things like *"did I already reply to Dana? if so close that
+todo"* and the agent will check your Sent mail before acting.
+
 ## 7. Connect your calendar (read-only)
 
 agentbox reads your calendar from an **iCal (ICS) feed URL** — no OAuth needed.

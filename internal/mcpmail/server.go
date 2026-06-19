@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -137,24 +138,34 @@ func (s *server) withClient(fn func(*imapclient.Client) (string, error)) (string
 // --- tool inputs ---
 
 type listInput struct {
-	Mailbox   string `json:"mailbox" jsonschema:"mailbox to list; empty means INBOX"`
+	Mailbox   string `json:"mailbox" jsonschema:"mailbox to list; empty means INBOX. Aliases Sent/Drafts/Trash/Junk/Archive resolve to the provider's actual folder"`
 	Limit     int    `json:"limit" jsonschema:"max messages to return (default 10, max 50)"`
 	SinceDays int    `json:"since_days" jsonschema:"only include mail from the last N days; 0 uses the configured default"`
 }
 
 type searchInput struct {
 	Query     string `json:"query" jsonschema:"text to search for across headers and body"`
-	Mailbox   string `json:"mailbox" jsonschema:"mailbox to search; empty means INBOX"`
+	Mailbox   string `json:"mailbox" jsonschema:"mailbox to search; empty means INBOX. Aliases Sent/Drafts/Trash/Junk/Archive resolve to the provider's actual folder"`
 	Limit     int    `json:"limit" jsonschema:"max messages to return (default 10, max 50)"`
 	SinceDays int    `json:"since_days" jsonschema:"only include mail from the last N days; 0 uses the configured default"`
 }
 
 type readInput struct {
 	UID     uint32 `json:"uid" jsonschema:"the UID of the message to read (from list/search results)"`
-	Mailbox string `json:"mailbox" jsonschema:"mailbox the message is in; empty means INBOX"`
+	Mailbox string `json:"mailbox" jsonschema:"mailbox the message is in; empty means INBOX. Aliases Sent/Drafts/Trash/Junk/Archive resolve to the provider's actual folder"`
 }
 
+type listMailboxesInput struct{}
+
 func (s *server) registerTools(srv *mcp.Server) {
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_mailboxes",
+		Description: "List the available mailboxes/folders, annotating special-use roles (Sent, Drafts, Trash, ...). Use this to find the right folder to scan — e.g. the Sent folder to check whether a reply was already sent.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listMailboxesInput) (*mcp.CallToolResult, any, error) {
+		out, err := s.listMailboxes(ctx)
+		return textResult(out, err), nil, nil
+	})
+
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_recent_emails",
 		Description: "List the most recent emails in a mailbox (newest first): UID, date, from, and subject.",
@@ -182,9 +193,25 @@ func (s *server) registerTools(srv *mcp.Server) {
 
 // --- IMAP operations (thin; integration-tested with a real server) ---
 
+// listMailboxes returns every folder the account exposes, annotating special-use
+// roles so the agent can pick the right one (e.g. the Sent folder to scan).
+func (s *server) listMailboxes(_ context.Context) (string, error) {
+	return s.withClient(func(c *imapclient.Client) (string, error) {
+		boxes, err := c.List("", "*", &imap.ListOptions{ReturnSpecialUse: true}).Collect()
+		if err != nil {
+			return "", fmt.Errorf("list mailboxes: %w", err)
+		}
+		return formatMailboxes(boxes), nil
+	})
+}
+
 func (s *server) listRecent(_ context.Context, mailbox string, limit, sinceDays int) (string, error) {
 	since := s.effectiveSince(sinceDays)
 	return s.withClient(func(c *imapclient.Client) (string, error) {
+		mailbox, err := resolveMailbox(c, mailbox)
+		if err != nil {
+			return "", err
+		}
 		sel, err := c.Select(mailbox, nil).Wait()
 		if err != nil {
 			return "", fmt.Errorf("select %q: %w", mailbox, err)
@@ -235,6 +262,10 @@ func (s *server) search(_ context.Context, query, mailbox string, limit, sinceDa
 	}
 	since := s.effectiveSince(sinceDays)
 	return s.withClient(func(c *imapclient.Client) (string, error) {
+		mailbox, err := resolveMailbox(c, mailbox)
+		if err != nil {
+			return "", err
+		}
 		if _, err := c.Select(mailbox, nil).Wait(); err != nil {
 			return "", fmt.Errorf("select %q: %w", mailbox, err)
 		}
@@ -263,6 +294,10 @@ func (s *server) search(_ context.Context, query, mailbox string, limit, sinceDa
 
 func (s *server) read(_ context.Context, uid uint32, mailbox string) (string, error) {
 	return s.withClient(func(c *imapclient.Client) (string, error) {
+		mailbox, err := resolveMailbox(c, mailbox)
+		if err != nil {
+			return "", err
+		}
 		if _, err := c.Select(mailbox, nil).Wait(); err != nil {
 			return "", fmt.Errorf("select %q: %w", mailbox, err)
 		}
@@ -388,6 +423,98 @@ func mailboxOr(m string) string {
 		return defaultMailbox
 	}
 	return m
+}
+
+// specialUseAliases maps case-insensitive logical names to their RFC 6154
+// SPECIAL-USE attribute(s), tried in order. The actual folder name varies by
+// provider ("Sent", "Sent Items", "[Gmail]/Sent Mail"), so the agent refers to
+// the role and we resolve it to the real name. A few aliases list more than one
+// attribute as a fallback — e.g. Gmail tags its "All Mail" folder \All, not
+// \Archive, so "archive" tries \Archive first, then \All.
+var specialUseAliases = map[string][]imap.MailboxAttr{
+	"sent":    {imap.MailboxAttrSent},
+	"drafts":  {imap.MailboxAttrDrafts},
+	"trash":   {imap.MailboxAttrTrash},
+	"junk":    {imap.MailboxAttrJunk},
+	"spam":    {imap.MailboxAttrJunk},
+	"archive": {imap.MailboxAttrArchive, imap.MailboxAttrAll},
+}
+
+// specialUseAttrs is the set annotated in mailbox listings, in display order.
+var specialUseAttrs = []imap.MailboxAttr{
+	imap.MailboxAttrSent, imap.MailboxAttrDrafts, imap.MailboxAttrArchive,
+	imap.MailboxAttrJunk, imap.MailboxAttrTrash, imap.MailboxAttrAll,
+	imap.MailboxAttrFlagged,
+}
+
+// resolveMailbox maps a logical alias like "Sent" to the server's real folder
+// via its SPECIAL-USE attribute. Names that aren't a known alias (INBOX, custom
+// folders) pass through unchanged with no extra round-trip. If no folder
+// advertises the attribute, the original name is returned as a best-effort
+// fallback (so a literal "Sent" folder still works on servers without
+// SPECIAL-USE).
+func resolveMailbox(c *imapclient.Client, name string) (string, error) {
+	attrs, ok := specialUseAliases[strings.ToLower(strings.TrimSpace(name))]
+	if !ok {
+		return name, nil
+	}
+	boxes, err := c.List("", "*", &imap.ListOptions{ReturnSpecialUse: true}).Collect()
+	if err != nil {
+		return "", fmt.Errorf("list mailboxes: %w", err)
+	}
+	for _, attr := range attrs {
+		if m := matchSpecialUse(boxes, attr); m != "" {
+			return m, nil
+		}
+	}
+	return name, nil
+}
+
+// matchSpecialUse returns the first mailbox carrying the given special-use
+// attribute, or "" if none does.
+func matchSpecialUse(boxes []*imap.ListData, want imap.MailboxAttr) string {
+	for _, m := range boxes {
+		if m != nil && hasAttr(m.Attrs, want) {
+			return m.Mailbox
+		}
+	}
+	return ""
+}
+
+// formatMailboxes renders the folder list one per line, annotating special-use
+// roles (e.g. "[Sent]") so the agent can choose the right mailbox.
+func formatMailboxes(boxes []*imap.ListData) string {
+	if len(boxes) == 0 {
+		return "(no mailboxes)"
+	}
+	var b strings.Builder
+	for _, m := range boxes {
+		if m == nil {
+			continue
+		}
+		if roles := specialUseRoles(m.Attrs); roles != "" {
+			fmt.Fprintf(&b, "%s\t[%s]\n", m.Mailbox, roles)
+		} else {
+			fmt.Fprintf(&b, "%s\n", m.Mailbox)
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// specialUseRoles lists the known special-use roles in attrs, backslash-stripped
+// (e.g. "Sent, Archive"), in display order.
+func specialUseRoles(attrs []imap.MailboxAttr) string {
+	var roles []string
+	for _, want := range specialUseAttrs {
+		if hasAttr(attrs, want) {
+			roles = append(roles, strings.TrimPrefix(string(want), `\`))
+		}
+	}
+	return strings.Join(roles, ", ")
+}
+
+func hasAttr(attrs []imap.MailboxAttr, want imap.MailboxAttr) bool {
+	return slices.Contains(attrs, want)
 }
 
 // daysSince rounds the elapsed days since t, for human-readable messages.

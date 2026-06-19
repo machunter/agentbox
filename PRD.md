@@ -5,7 +5,7 @@
 > treat it as the source of intent, not a frozen spec.
 
 **Status key:** ✅ Shipped (validated live) · 🟡 Shipped (unit-tested, not exercised live) · 🔵 Planned · 🤔 Considering
-**Last updated:** 2026-06-17 (daily journal) · **Branch of record:** `main`
+**Last updated:** 2026-06-18 (mailbox aliases + `list_mailboxes`) · **Branch of record:** `main`
 
 ---
 
@@ -69,7 +69,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Voice capture of todos/notes | 🔵 | Same inbox, audio → text needs a local Whisper model (no cloud STT); v2 |
 | Multimodal agent input (images) | ✅ | `RunWithImage`; adapter sends inline image as a vision block |
 | Multi-directory access | ✅ | `MOUNTS` / compose override; mount under `/workspace` |
-| Email — read (`list_recent_emails`, `search_emails`, `read_email`) | ✅ | IMAP, read-only; count-bounded, optional date window (`AGENTBOX_EMAIL_SINCE_DAYS` / `since_days`) |
+| Email — read (`list_mailboxes`, `list_recent_emails`, `search_emails`, `read_email`) | ✅ | IMAP, read-only; count-bounded, optional date window (`AGENTBOX_EMAIL_SINCE_DAYS` / `since_days`). Mailbox aliases (`Sent`/`Drafts`/`Trash`/`Junk`/`Archive`) resolve to the provider's real folder via RFC 6154 SPECIAL-USE, so the agent can scan sent mail to e.g. close a todo once a reply went out |
 | Calendar — read (`list_upcoming_events`, `events_on_day`, `search_events`) | ✅ | ICS feeds, read-only, recurrence-expanded, all-day aware; validated live |
 | Long-lived / scheduled operation (`serve`, `run-task`) | ✅ | Cron scheduler runs YAML-configured tasks; run path validated live via `run-task`, timed firing via robfig/cron |
 | Daily output journal | ✅ | Each scheduled task's result appended to `journal/YYYY-MM-DD.md`; the no-SMTP delivery channel |

@@ -46,8 +46,10 @@ adapter.
   ADK's `mcptoolset` — the pattern for adding external connectors. It gives the
   model cleaner, read-only file primitives alongside `run_bash`.
 - **`internal/mcpmail`** — a read-only email MCP server over IMAP
-  (`list_recent_emails`, `search_emails`, `read_email`), launched the same way.
-  Enabled only when IMAP credentials are configured; otherwise silently skipped.
+  (`list_mailboxes`, `list_recent_emails`, `search_emails`, `read_email`),
+  launched the same way. Mailbox aliases (`Sent`/`Drafts`/`Trash`/`Junk`/`Archive`)
+  resolve to the provider's real folder via SPECIAL-USE. Enabled only when IMAP
+  credentials are configured; otherwise silently skipped.
 - **`internal/mcpcal`** — a read-only calendar MCP server over iCal (ICS) feeds
   (`list_upcoming_events`, `events_on_day`, `search_events`), expanding recurring
   events within the query window. Enabled only when feed URLs are configured.
@@ -261,8 +263,11 @@ the morning briefing, what it captured, and so on. Location is
 ### Email (read-only)
 
 Set `AGENTBOX_IMAP_HOST`, `AGENTBOX_IMAP_USER`, and `AGENTBOX_IMAP_PASS` (e.g. in
-`.env`) to give the agent read-only email tools: `list_recent_emails`,
-`search_emails`, and `read_email`. Use a provider **app password**, not your main
+`.env`) to give the agent read-only email tools: `list_mailboxes`,
+`list_recent_emails`, `search_emails`, and `read_email`. Mailbox aliases
+(`Sent`/`Drafts`/`Trash`/`Junk`/`Archive`) resolve to the provider's real folder
+automatically, so the agent can scan sent mail — e.g. to confirm a reply went out
+and close the matching todo. Use a provider **app password**, not your main
 password. Sending is intentionally not supported yet — it will come as a
 separate, confirmation-gated capability.
 

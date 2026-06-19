@@ -1,6 +1,7 @@
 package mcpmail
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -96,6 +97,67 @@ func TestFormatAddresses(t *testing.T) {
 	}
 	if got := formatAddresses(nil); got != "(unknown)" {
 		t.Errorf("empty addresses = %q, want (unknown)", got)
+	}
+}
+
+func TestSpecialUseRoles(t *testing.T) {
+	if got := specialUseRoles([]imap.MailboxAttr{imap.MailboxAttrSent}); got != "Sent" {
+		t.Errorf("Sent roles = %q, want Sent", got)
+	}
+	// Multiple roles render in display order, backslash-stripped.
+	got := specialUseRoles([]imap.MailboxAttr{imap.MailboxAttrTrash, imap.MailboxAttrSent})
+	if got != "Sent, Trash" {
+		t.Errorf("roles = %q, want %q", got, "Sent, Trash")
+	}
+	// Non-special attributes (e.g. \HasNoChildren) annotate nothing.
+	if got := specialUseRoles([]imap.MailboxAttr{"\\HasNoChildren"}); got != "" {
+		t.Errorf("non-special roles = %q, want empty", got)
+	}
+}
+
+func TestMatchSpecialUse(t *testing.T) {
+	boxes := []*imap.ListData{
+		{Mailbox: "INBOX"},
+		nil, // tolerate nil entries
+		{Mailbox: "[Gmail]/Sent Mail", Attrs: []imap.MailboxAttr{imap.MailboxAttrSent}},
+		{Mailbox: "[Gmail]/Trash", Attrs: []imap.MailboxAttr{imap.MailboxAttrTrash}},
+	}
+	if got := matchSpecialUse(boxes, imap.MailboxAttrSent); got != "[Gmail]/Sent Mail" {
+		t.Errorf("Sent match = %q, want [Gmail]/Sent Mail", got)
+	}
+	if got := matchSpecialUse(boxes, imap.MailboxAttrDrafts); got != "" {
+		t.Errorf("Drafts (absent) match = %q, want empty", got)
+	}
+}
+
+func TestFormatMailboxes(t *testing.T) {
+	if got := formatMailboxes(nil); got != "(no mailboxes)" {
+		t.Errorf("empty = %q, want (no mailboxes)", got)
+	}
+	out := formatMailboxes([]*imap.ListData{
+		{Mailbox: "INBOX"},
+		{Mailbox: "[Gmail]/Sent Mail", Attrs: []imap.MailboxAttr{imap.MailboxAttrSent}},
+	})
+	if !strings.HasPrefix(out, "INBOX\n") {
+		t.Errorf("INBOX should be the first line, unannotated: %q", out)
+	}
+	if !strings.Contains(out, "[Gmail]/Sent Mail\t[Sent]") {
+		t.Errorf("Sent folder not annotated: %q", out)
+	}
+}
+
+func TestSpecialUseAliases(t *testing.T) {
+	// Aliases are case-insensitive; INBOX and custom names are not aliases.
+	if _, ok := specialUseAliases["sent"]; !ok {
+		t.Error("sent should be a known alias")
+	}
+	if _, ok := specialUseAliases[strings.ToLower("INBOX")]; ok {
+		t.Error("INBOX should not be an alias (passes through unchanged)")
+	}
+	// archive falls back to \All (Gmail "All Mail") when no \Archive folder exists.
+	want := []imap.MailboxAttr{imap.MailboxAttrArchive, imap.MailboxAttrAll}
+	if got := specialUseAliases["archive"]; !slices.Equal(got, want) {
+		t.Errorf("archive aliases = %v, want %v", got, want)
 	}
 }
 
