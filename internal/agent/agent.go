@@ -66,6 +66,8 @@ const (
 		"Do not browse, list, or read other folders/labels unless the task explicitly requires it; some accounts have many and reading them wastes time. " +
 		"Scanning Sent is for checking whether you already replied — e.g. to find a reply that resolves an open todo and then complete_todo it. " +
 		"When a calendar is configured, you have read-only calendar tools (list_upcoming_events, events_on_day, search_events). " +
+		"Always use these dedicated email and calendar tools for those sources — do NOT fetch mailboxes or calendar/ICS feeds over the network with run_bash (curl, python, perl, etc.). " +
+		"If a connector you need isn't available (because it isn't configured), say so plainly and move on; do not improvise with bash or scripting languages. " +
 		"You have notes/todo tools (add_todo, list_todos, complete_todo, add_note, search_notes) for capturing and managing the user's todos and notes. " +
 		"Work in small, verifiable steps: inspect before you act, and check your work. " +
 		"You have a long-term memory of past sessions; relevant memories are provided automatically, " +
