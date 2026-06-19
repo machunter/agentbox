@@ -210,10 +210,15 @@ for the next cron time (weekly/monthly tasks are skipped). Define tasks in a YAM
 file:
 
 ```sh
-cp schedule.example.yaml schedule.yaml   # then edit names, cron specs, prompts
-docker compose up -d                      # starts Ollama + the scheduler
-make compose-logs                         # follow the scheduler's output
+mkdir -p config
+cp schedule.example.yaml config/schedule.yaml   # then edit names, cron specs, prompts
+docker compose up -d                            # starts Ollama + the scheduler
+make compose-logs                               # follow the scheduler's output
 ```
+
+The schedule is mounted as the `config/` **directory** (not a single file): on
+macOS a single-file bind mount can trip a VirtioFS bug ("resource deadlock
+avoided") from macOS extended attributes; a directory mount avoids it.
 
 Each task is `{name, schedule, prompt}`; `schedule` is standard 5-field cron
 (`0 8 * * *`) or a descriptor (`@daily`). Each run is an independent agent run
@@ -223,7 +228,7 @@ fire in your local time.
 Test a task without waiting for its time:
 
 ```sh
-make compose-run-task NAME=morning-briefing
+make compose-run-task NAME=daily-briefing
 ```
 
 Locally (no Docker): `AGENTBOX_SCHEDULE=schedule.yaml agentbox serve` (or

@@ -1,6 +1,7 @@
-# Copy to schedule.yaml (gitignored) and edit. The scheduler (`agentbox serve`,
-# or `docker compose up`) runs each task on its cron schedule. Each run is an
-# independent agent run that shares the persistent memory store.
+# Copy to config/schedule.yaml (gitignored) and edit. The scheduler
+# (`agentbox serve`, or `docker compose up`) runs each task on its cron
+# schedule. Each run is an independent agent run that shares the persistent
+# memory store.
 #
 # schedule: standard 5-field cron ("min hour dom mon dow") or a descriptor
 #           (@hourly, @daily, @weekly, @monthly). Interpreted in the container's
@@ -9,59 +10,50 @@
 #           summary is appended to the daily journal (the digest you read).
 # command:  a built-in instead of a prompt (currently only process-captures).
 #
-# The three briefings below run at the start, middle, and end of the day. Each
-# reads email + calendar, files actionable emails as todos, and writes a short
-# executive summary to the journal. Tune the wording to taste.
+# Startup catch-up: on (re)start, the scheduler runs every task that fires at
+# least daily once immediately (commands before prompts), so you get today's
+# briefing and any waiting captures right away. Weekly/monthly tasks are not.
+# That's why there is ONE adaptive daily-briefing (not separate morning/midday/
+# evening tasks) — at startup it would otherwise run all three back to back.
 
 tasks:
-  - name: morning-briefing
-    schedule: "0 8 * * *"          # every day at 08:00
-    prompt: >
-      It's the start of my day. Do the following, then write me a briefing:
-      (1) List today's calendar events.
-      (2) Read my emails from the last day and pick out anything that needs my
-      attention or a reply.
-      (3) For each email that needs an action from me, file a todo with add_todo
-      — but first call list_todos and skip anything already captured, and don't
-      create todos for newsletters, receipts, or FYI-only mail.
-      Finish with a tight executive summary (a few bullets, no preamble): what
-      matters most today, my meetings, anything urgent in email, and which new
-      todos you just created. This summary is the only thing I'll read, so make
-      it self-contained.
+  # Read dropped photos and file their todos/notes. Listed first so the startup
+  # catch-up captures before the briefing reads todos. Runs ~10 min before each
+  # briefing time so the briefing reflects freshly-filed items.
+  - name: process-captures
+    schedule: "50 7,12,17 * * *"   # 07:50, 12:50, 17:50
+    command: process-captures
 
-  - name: midday-briefing
-    schedule: "0 13 * * *"         # every day at 13:00
+  # One briefing that adapts to the time of day. Fires morning/midday/evening;
+  # at startup it runs once, with framing chosen from the current time.
+  - name: daily-briefing
+    schedule: "0 8,13,18 * * *"    # 08:00, 13:00, 18:00
     prompt: >
-      It's midday. Do the following, then write me a briefing:
-      (1) List my remaining calendar events for the rest of today.
-      (2) Read emails that arrived since this morning and pick out anything that
-      needs my attention or a reply.
-      (3) For each email that needs an action from me, file a todo with add_todo
-      — first call list_todos and skip duplicates; ignore newsletters and FYI mail.
-      Finish with a short executive summary: what's left on my calendar this
-      afternoon, anything urgent that came in, and the new todos you created.
-      Keep it to a few bullets, self-contained.
+      Give me a briefing tailored to the time of day. First run `date` to get
+      the current local time and decide whether this is the morning (start of
+      day), midday, or evening (end of day) briefing.
 
-  - name: evening-briefing
-    schedule: "0 18 * * *"         # every day at 18:00
-    prompt: >
-      It's the end of my day. Do the following, then write me a wrap-up:
-      (1) Read emails that arrived since midday and flag anything needing a reply.
-      (2) For each email that needs an action from me, file a todo with add_todo
-      — first call list_todos and skip duplicates; ignore newsletters and FYI mail.
-      (3) Preview tomorrow's calendar so I know what's coming.
-      (4) Call list_todos and note anything still open.
-      Finish with a short executive summary: what to wrap up tonight, what's open,
-      and what tomorrow looks like. A few bullets, self-contained.
+      Then:
+      (1) List today's calendar events. For the evening briefing, also preview
+      tomorrow.
+      (2) Read my recent emails and pick out anything that needs my attention or
+      a reply. For each email that needs an action from me, file a todo with
+      add_todo — but first call list_todos and skip anything already captured,
+      and don't create todos for newsletters, receipts, or FYI-only mail.
+      (3) Review my open todos with list_todos. For any todo about replying to or
+      emailing someone, check whether I already handled it: use list_mailboxes to
+      find my Sent folder, then search_emails in the "Sent" mailbox for that
+      person/subject. If I already sent the reply, mark the todo done with
+      complete_todo.
+
+      Finish with a tight executive summary appropriate to the time of day (a few
+      bullets, no preamble): what matters most now, my meetings, anything urgent
+      in email, todos you created, and todos you closed. This summary is the only
+      thing I'll read, so make it self-contained.
 
   - name: weekly-review
-    schedule: "0 17 * * 5"         # Fridays at 17:00
+    schedule: "0 17 * * 5"         # Fridays at 17:00 (not run at startup)
     prompt: >
       Review my calendar for the past week and draft a short summary of what
       I worked on, based on events and any notes in /workspace. End with a tight
       executive summary I can skim.
-
-  # A `command` task runs a built-in instead of an agent prompt.
-  - name: process-captures
-    schedule: "50 7,12,17 * * *"   # 07:50, 12:50, 17:50 — just before each briefing
-    command: process-captures      # read dropped photos, file their todos/notes
