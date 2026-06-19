@@ -237,7 +237,8 @@ see the schedule below.
 This is what makes agentbox "run your day." Create a schedule:
 
 ```sh
-cp schedule.example.yaml schedule.yaml   # then edit
+mkdir -p config
+cp schedule.example.yaml config/schedule.yaml   # then edit
 ```
 
 Each task has a `name`, a `schedule` (standard cron like `0 8 * * *`, or a
@@ -246,14 +247,20 @@ descriptor like `@daily`), and either a `prompt` (an agent task) or a `command`
 
 ```yaml
 tasks:
-  - name: morning-briefing
-    schedule: "0 8 * * *"
-    prompt: >
-      Summarize my unread emails and today's calendar, and list my open todos.
   - name: process-captures
-    schedule: "*/30 * * * *"
+    schedule: "50 7,12,17 * * *"   # just before each briefing
     command: process-captures
+  - name: daily-briefing
+    schedule: "0 8,13,18 * * *"    # one task, adapts to time of day
+    prompt: >
+      Run `date` to see if it's morning/midday/evening, then summarize today's
+      calendar and recent email, file actionable emails as todos, and close any
+      todo I already handled (check the Sent folder). End with a short summary.
 ```
+
+Use one adaptive `daily-briefing` rather than separate morning/midday/evening
+tasks: at startup the scheduler runs every daily task once, so three briefing
+tasks would all fire back to back. One task that checks the time avoids that.
 
 Start the long-lived scheduler (and follow its output):
 
@@ -266,7 +273,7 @@ docker compose down         # stop
 Test a task immediately, without waiting for its time:
 
 ```sh
-make compose-run-task NAME=morning-briefing
+make compose-run-task NAME=daily-briefing
 ```
 
 Schedules fire in `AGENTBOX_TIMEZONE`. On startup the scheduler also runs every
@@ -353,17 +360,15 @@ set `AGENTBOX_TIMEZONE` to your zone (e.g. `America/Los_Angeles`).
 Docker Desktop disk is full or wedged. Restart Docker Desktop and/or run
 `docker system prune` to reclaim space, then retry.
 
-**`resource deadlock avoided` reading a mounted file (macOS)** — the file (e.g.
-`schedule.yaml`) carries macOS extended attributes — common on downloaded or
-copied files (`com.apple.quarantine`, `com.apple.provenance`) — which trip
-Docker's file sharing. Strip them:
-
-```sh
-xattr -c schedule.yaml      # one file
-xattr -cr .                 # or the whole folder (clears .env, schedule.yaml, …)
-```
-
-(Use `xattr -l <file>` to see what's attached.)
+**`resource deadlock avoided` reading a mounted file (macOS)** — a **single-file**
+bind mount trips a Docker VirtioFS bug when the file carries macOS extended
+attributes (`com.apple.provenance`, `com.apple.macl`), which `xattr -c` can't
+fully strip. The compose files avoid this by mounting the **`config/` directory**
+(holding `schedule.yaml`) rather than the file itself — directory mounts aren't
+affected. If you still hit it on an older config that mounts the file directly,
+either switch to the directory mount or, as a stopgap, switch Docker Desktop's
+file-sharing implementation (Settings → General) from **VirtioFS** to **gRPC
+FUSE**. (`xattr -l <file>` shows what's attached.)
 
 **Captured photos aren't becoming todos** — run with `AGENTBOX_DEBUG=1` and look
 for `skip entry … reason="unsupported file type"`. The usual cause is **iPhone

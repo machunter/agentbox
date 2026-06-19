@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -213,26 +214,28 @@ func TestFiresDaily(t *testing.T) {
 	}
 }
 
-func TestRunDailyOnceSkipsNonDaily(t *testing.T) {
+func TestRunDailyOnceSkipsNonDailyAndRunsCommandsFirst(t *testing.T) {
+	// Prompt task listed first, command task last — startup should still run the
+	// command first, and skip the weekly task entirely.
 	cfg := &Config{Tasks: []Task{
-		{Name: "morning", Schedule: "0 8 * * *", Prompt: "morning brief"},
+		{Name: "briefing", Schedule: "0 8 * * *", Prompt: "daily brief"},
 		{Name: "weekly", Schedule: "0 17 * * 5", Prompt: "weekly review"},
 		{Name: "captures", Schedule: "50 7,12,17 * * *", Command: "process-captures"},
 	}}
-	var prompts []string
-	ranCommand := false
+	var order []string
 	commands := map[string]CommandFunc{
-		"process-captures": func(_ context.Context, _ io.Writer) (string, error) { ranCommand = true; return "", nil },
+		"process-captures": func(_ context.Context, _ io.Writer) (string, error) {
+			order = append(order, "captures")
+			return "", nil
+		},
 	}
-	s := New(cfg, io.Discard, fakeFactory(&prompts), commands, nil, time.UTC)
+	s := New(cfg, io.Discard, fakeFactory(&order), commands, nil, time.UTC)
 
 	s.runDailyOnce(context.Background(), time.UTC)
 
-	if len(prompts) != 1 || prompts[0] != "morning brief" {
-		t.Errorf("daily prompt tasks run = %v, want only [morning brief]", prompts)
-	}
-	if !ranCommand {
-		t.Error("daily command task (captures) should have run at startup")
+	want := []string{"captures", "daily brief"} // command before prompt; weekly skipped
+	if !slices.Equal(order, want) {
+		t.Errorf("startup run order = %v, want %v", order, want)
 	}
 }
 

@@ -168,16 +168,25 @@ func (s *Scheduler) Serve(ctx context.Context) error {
 // tasks are skipped (you don't want a weekly review on every restart).
 func (s *Scheduler) runDailyOnce(ctx context.Context, loc *time.Location) {
 	from := time.Now().In(loc)
-	var daily []Task
+	// Command tasks first, then prompt tasks: built-ins like process-captures
+	// prepare state (file todos from photos) that a briefing prompt then reads,
+	// so the startup briefing reflects anything just captured.
+	var cmds, prompts []Task
 	for _, t := range s.cfg.Tasks {
 		sched, err := cron.ParseStandard(t.Schedule)
 		if err != nil {
 			continue // already validated at load; ignore defensively
 		}
-		if firesDaily(sched, from) {
-			daily = append(daily, t)
+		if !firesDaily(sched, from) {
+			continue
+		}
+		if t.Command != "" {
+			cmds = append(cmds, t)
+		} else {
+			prompts = append(prompts, t)
 		}
 	}
+	daily := append(cmds, prompts...)
 	if len(daily) == 0 {
 		return
 	}
