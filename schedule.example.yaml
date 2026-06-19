@@ -41,10 +41,14 @@ tasks:
       add_todo — but first call list_todos and skip anything already captured,
       and don't create todos for newsletters, receipts, or FYI-only mail.
       (3) Review my open todos with list_todos. For any todo about replying to or
-      emailing someone, check whether I already handled it: use list_mailboxes to
-      find my Sent folder, then search_emails in the "Sent" mailbox for that
+      emailing someone, check whether I already handled it by searching my Sent
+      mail: call search_emails with mailbox "Sent" (that name resolves to the
+      real Sent folder automatically — do NOT call list_mailboxes) for that
       person/subject. If I already sent the reply, mark the todo done with
       complete_todo.
+
+      Only read the inbox and the Sent folder. Do not list, open, or search any
+      other folders or labels.
 
       Finish with a tight executive summary appropriate to the time of day (a few
       bullets, no preamble): what matters most now, my meetings, anything urgent

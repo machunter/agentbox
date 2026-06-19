@@ -160,7 +160,7 @@ type listMailboxesInput struct{}
 func (s *server) registerTools(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_mailboxes",
-		Description: "List the available mailboxes/folders, annotating special-use roles (Sent, Drafts, Trash, ...). Use this to find the right folder to scan — e.g. the Sent folder to check whether a reply was already sent.",
+		Description: "List available mailboxes/folders with their special-use roles. You usually do NOT need this: refer to Sent/Drafts/Trash/Junk/Archive by name and they resolve to the real folder automatically. Use it only to discover a custom folder you can't address by role — avoid it on accounts with many folders.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listMailboxesInput) (*mcp.CallToolResult, any, error) {
 		out, err := s.listMailboxes(ctx)
 		return textResult(out, err), nil, nil
