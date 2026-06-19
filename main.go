@@ -29,6 +29,12 @@ import (
 )
 
 func main() {
+	// Align the process clock — and child processes like run_bash's `date`,
+	// which inherit $TZ — with the configured timezone. Without this the
+	// container runs in UTC, so the agent's sense of "now" disagrees with the
+	// scheduler and it misjudges the time of day (e.g. morning read as evening).
+	applyTimezone()
+
 	// Internal subcommand: run as the filesystem MCP server over stdio. agentbox
 	// launches itself this way (see internal/agent); it needs no API key, so this
 	// dispatch comes first.
@@ -234,6 +240,23 @@ func agentTimezone() *time.Location {
 		}
 	}
 	return time.UTC
+}
+
+// applyTimezone makes the configured timezone the process default, so log
+// timestamps, time.Now(), and child processes (run_bash's `date` inherits $TZ)
+// all agree with the scheduler. No-op when AGENTBOX_TIMEZONE is unset or
+// invalid (the container's default — typically UTC — then applies).
+func applyTimezone() {
+	tz := os.Getenv("AGENTBOX_TIMEZONE")
+	if tz == "" {
+		return
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return
+	}
+	time.Local = loc
+	_ = os.Setenv("TZ", tz)
 }
 
 // processCaptures runs the agent over each image in the capture inbox. Full
