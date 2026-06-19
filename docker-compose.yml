@@ -4,9 +4,14 @@
 #
 # One-shot task:
 #   docker compose run --rm agentbox "summarize the files in /workspace"
-# Long-lived scheduler (runs schedule.yaml on cron):
-#   cp schedule.example.yaml schedule.yaml   # then edit
-#   docker compose up -d                      # starts ollama + the scheduler
+# Long-lived scheduler (runs config/schedule.yaml on cron):
+#   mkdir -p config
+#   cp schedule.example.yaml config/schedule.yaml   # then edit
+#   docker compose up -d                             # starts ollama + the scheduler
+#
+# The schedule is mounted as a directory (config/), not a single file: on macOS
+# a single-file bind mount trips a VirtioFS bug ("resource deadlock avoided")
+# from macOS extended attributes. A directory mount sidesteps it.
 #
 # ANTHROPIC_API_KEY and the optional connector settings come from your shell env
 # or a local .env file (compose reads it). Memory and the model cache persist in
@@ -95,7 +100,8 @@ services:
       - agentbox_memory:/data/memory
       - ${AGENTBOX_CAPTURE_HOST:-./captures}:/data/captures
       - ${AGENTBOX_JOURNAL_HOST:-./journal}:/data/journal
-      - ${AGENTBOX_SCHEDULE_FILE:-./schedule.yaml}:/etc/agentbox/schedule.yaml:ro
+      # Mount the directory holding schedule.yaml (not the file) — see header note.
+      - ${AGENTBOX_CONFIG_DIR:-./config}:/etc/agentbox:ro
 
 volumes:
   ollama_models:
