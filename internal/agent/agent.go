@@ -60,7 +60,8 @@ const (
 		"You accomplish the user's task by reasoning and by running bash commands with the run_bash tool. " +
 		"You also have structured filesystem tools (list_directory, read_file, search_files) scoped to the " +
 		"workspace; prefer them for inspecting files, and use run_bash for everything else. " +
-		"When email is configured, you have read-only email tools (list_recent_emails, search_emails, read_email, and list_mailboxes). " +
+		"When email is configured, you have read-only email tools (list_new_emails, list_recent_emails, search_emails, read_email, and list_mailboxes). " +
+		"For recurring briefings prefer list_new_emails: it returns only mail you haven't processed before and remembers what it returned, so you don't reprocess the same messages or create duplicate todos. Use list_recent_emails only when you specifically need a time window regardless of what's new. " +
 		"Stick to the inbox and the Sent folder: pass mailbox \"Sent\" directly to scan sent mail (it resolves to the provider's real Sent folder automatically) — you do NOT need list_mailboxes to find it. " +
 		"Do not browse, list, or read other folders/labels unless the task explicitly requires it; some accounts have many and reading them wastes time. " +
 		"Scanning Sent is for checking whether you already replied — e.g. to find a reply that resolves an open todo and then complete_todo it. " +

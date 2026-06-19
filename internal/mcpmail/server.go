@@ -85,7 +85,8 @@ func Configured() bool {
 // tool call (while the agent thinks), and the server then drops it. Per-call
 // connections are immediately used, which is reliable.
 type server struct {
-	cfg Config
+	cfg   Config
+	state *stateStore // per-mailbox UID watermarks; nil disables incremental mode
 }
 
 // Serve runs the email MCP server over stdio until the context is cancelled. It
@@ -96,7 +97,7 @@ func Serve(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("email not configured (set AGENTBOX_IMAP_HOST/USER/PASS)")
 	}
-	s := &server{cfg: cfg}
+	s := &server{cfg: cfg, state: newStateStore(stateFilePath())}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "agentbox-mail", Version: "0.1.0"}, nil)
 	s.registerTools(srv)
 	return srv.Run(ctx, &mcp.StdioTransport{})
@@ -157,7 +158,20 @@ type readInput struct {
 
 type listMailboxesInput struct{}
 
+type listNewInput struct {
+	Mailbox string `json:"mailbox" jsonschema:"mailbox to check; empty means INBOX. Aliases Sent/Drafts/Trash/Junk/Archive resolve to the provider's actual folder"`
+	Limit   int    `json:"limit" jsonschema:"max messages to return (default 10, max 50)"`
+}
+
 func (s *server) registerTools(srv *mcp.Server) {
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_new_emails",
+		Description: "List emails that arrived since the last time this tool ran for the mailbox (oldest unseen first), then remember them so they aren't returned again. Use this in recurring briefings to act on genuinely new mail without reprocessing the same messages. Empty mailbox = INBOX.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listNewInput) (*mcp.CallToolResult, any, error) {
+		out, err := s.listNew(ctx, mailboxOr(in.Mailbox), clampLimit(in.Limit))
+		return textResult(out, err), nil, nil
+	})
+
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_mailboxes",
 		Description: "List available mailboxes/folders with their special-use roles. You usually do NOT need this: refer to Sent/Drafts/Trash/Junk/Archive by name and they resolve to the real folder automatically. Use it only to discover a custom folder you can't address by role — avoid it on accounts with many folders.",
@@ -253,6 +267,72 @@ func (s *server) listRecent(_ context.Context, mailbox string, limit, sinceDays 
 			return "", fmt.Errorf("fetch: %w", err)
 		}
 		return formatList(msgs), nil
+	})
+}
+
+// listNew returns mail with a UID greater than the watermark this tool last
+// recorded for the mailbox, then advances the watermark to the highest UID it
+// returned — so the next call only sees newer mail. The configured since-days
+// floor still bounds the very first run (when there's no watermark yet) so a
+// large mailbox doesn't flood. Results are oldest-first; when more than `limit`
+// are new, the remainder are picked up on the next call (nothing is skipped).
+func (s *server) listNew(_ context.Context, mailbox string, limit int) (string, error) {
+	since := s.effectiveSince(0) // floor only — this tool is "what's new", not a window
+	return s.withClient(func(c *imapclient.Client) (string, error) {
+		mailbox, err := resolveMailbox(c, mailbox)
+		if err != nil {
+			return "", err
+		}
+		sel, err := c.Select(mailbox, nil).Wait()
+		if err != nil {
+			return "", fmt.Errorf("select %q: %w", mailbox, err)
+		}
+		if sel.NumMessages == 0 {
+			return "(mailbox is empty)", nil
+		}
+
+		last := s.state.get(mailbox, sel.UIDValidity)
+		criteria := &imap.SearchCriteria{
+			UID: []imap.UIDSet{{imap.UIDRange{Start: imap.UID(last + 1), Stop: 0}}}, // last+1:*
+		}
+		if !since.IsZero() {
+			criteria.Since = since
+		}
+		data, err := c.UIDSearch(criteria, nil).Wait()
+		if err != nil {
+			return "", fmt.Errorf("search new: %w", err)
+		}
+		uids := data.AllUIDs()
+		if len(uids) == 0 {
+			return "(no new mail since the last check)", nil
+		}
+		slices.Sort(uids) // ascending: keep the oldest unseen when limiting
+
+		truncated := len(uids) > limit
+		if truncated {
+			uids = uids[:limit]
+		}
+		msgs, err := c.Fetch(imap.UIDSetNum(uids...), &imap.FetchOptions{Envelope: true, UID: true}).Collect()
+		if err != nil {
+			return "", fmt.Errorf("fetch: %w", err)
+		}
+
+		// Advance the watermark to the highest UID we actually returned.
+		var maxUID imap.UID
+		for _, u := range uids {
+			if u > maxUID {
+				maxUID = u
+			}
+		}
+		if err := s.state.set(mailbox, sel.UIDValidity, uint32(maxUID)); err != nil {
+			fmt.Fprintf(os.Stderr, "mcp-mail: could not persist mail watermark: %v\n", err)
+		}
+
+		out := formatList(msgs)
+		if truncated {
+			out += fmt.Sprintf("\n\n(showing the %d oldest new messages; call again for the rest)", limit)
+		}
+		return out, nil
 	})
 }
 
