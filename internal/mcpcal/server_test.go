@@ -1,6 +1,8 @@
 package mcpcal
 
 import (
+	"errors"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -165,5 +167,26 @@ func TestDaysAndLimitClamps(t *testing.T) {
 	}
 	if limitOr(0) != maxEvents || limitOr(5) != 5 || limitOr(99999) != maxEvents {
 		t.Error("limitOr clamping wrong")
+	}
+}
+
+func TestTransportCauseStripsSecretURL(t *testing.T) {
+	secret := "private-2ac72d4be3bdfe0315550b677cf89231"
+	ue := &url.Error{
+		Op:  "Get",
+		URL: "https://calendar.google.com/calendar/ical/x/" + secret + "/basic.ics",
+		Err: errors.New("x509: certificate signed by unknown authority"),
+	}
+	got := transportCause(ue).Error()
+	if strings.Contains(got, secret) {
+		t.Errorf("cause leaked secret token: %q", got)
+	}
+	if !strings.Contains(got, "x509") {
+		t.Errorf("cause lost the useful detail: %q", got)
+	}
+	// Non-url errors pass through unchanged.
+	plain := errors.New("boom")
+	if transportCause(plain) != plain {
+		t.Error("plain error should pass through unchanged")
 	}
 }
