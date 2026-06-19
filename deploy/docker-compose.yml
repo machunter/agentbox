@@ -39,6 +39,7 @@ x-agentbox-env: &agentbox-env
   AGENTBOX_TIMEZONE: ${AGENTBOX_TIMEZONE:-}
   AGENTBOX_CAPTURE_DIR: /data/captures
   AGENTBOX_JOURNAL_DIR: /data/journal
+  AGENTBOX_MAX_TOOL_CALLS: ${AGENTBOX_MAX_TOOL_CALLS:-}
   AGENTBOX_DEBUG: ${AGENTBOX_DEBUG:-}
 
 x-agentbox-deps: &agentbox-deps

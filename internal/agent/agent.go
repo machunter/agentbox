@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,10 +46,13 @@ import (
 // defaulting to Claude Opus 4.8; thinking config is left unset (each provider
 // applies sensible defaults).
 const (
-	maxTurns  = 25 // safety stop (counted in tool-call rounds) so a loop can't run forever
-	appName   = "agentbox"
-	userID    = "local"
-	sessionID = "main"
+	// defaultMaxTurns is the safety stop (counted in tool-call rounds) so a loop
+	// can't run forever. Overridable via AGENTBOX_MAX_TOOL_CALLS — busy work
+	// mailboxes can legitimately need more rounds than a personal one.
+	defaultMaxTurns = 50
+	appName         = "agentbox"
+	userID          = "local"
+	sessionID       = "main"
 
 	probeTimeout = 3 * time.Second
 
@@ -75,6 +79,7 @@ type Agent struct {
 	mem      *memory.Service // nil when memory is disabled/unavailable
 	out      io.Writer
 	log      *slog.Logger
+	maxTurns int             // tool-call rounds before the safety stop
 	answer   strings.Builder // assistant prose from the current run (for journaling)
 }
 
@@ -111,6 +116,17 @@ func configFromEnv() config {
 func envOr(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return def
+}
+
+// envInt reads a positive integer from the environment, falling back to def when
+// unset, unparseable, or non-positive.
+func envInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
 	}
 	return def
 }
@@ -192,7 +208,14 @@ func New(ctx context.Context, out io.Writer) (*Agent, error) {
 		return nil, fmt.Errorf("init runner: %w", err)
 	}
 
-	return &Agent{runner: r, sessions: sessions, mem: mem, out: out, log: log}, nil
+	return &Agent{
+		runner:   r,
+		sessions: sessions,
+		mem:      mem,
+		out:      out,
+		log:      log,
+		maxTurns: envInt("AGENTBOX_MAX_TOOL_CALLS", defaultMaxTurns),
+	}, nil
 }
 
 // selfMCPToolset launches agentbox in a subcommand as a local MCP server and
@@ -296,6 +319,7 @@ func (a *Agent) runContent(ctx context.Context, msg *genai.Content) error {
 	a.log.Debug("run start", "input", describeContent(msg))
 
 	turns := 0
+	capped := false
 	for ev, err := range a.runner.Run(ctx, userID, sessionID, msg, agent.RunConfig{}) {
 		if err != nil {
 			a.log.Debug("run error", "turn", turns, "err", err)
@@ -303,17 +327,47 @@ func (a *Agent) runContent(ctx context.Context, msg *genai.Content) error {
 		}
 		if a.printEvent(ev) {
 			turns++
-			if turns >= maxTurns {
-				fmt.Fprintf(a.out, "\n[stopped after %d tool calls]\n", maxTurns)
-				a.log.Debug("run stopped at turn cap", "maxTurns", maxTurns)
+			if turns >= a.maxTurns {
+				fmt.Fprintf(a.out, "\n[reached the %d tool-call limit; wrapping up]\n", a.maxTurns)
+				a.log.Debug("run stopped at turn cap", "maxTurns", a.maxTurns)
+				capped = true
 				break
 			}
 		}
 	}
 
-	a.log.Debug("run complete", "tool_call_rounds", turns)
+	// If we stopped because of the cap, the model never got to write its closing
+	// summary, so a digest/journal would be empty. Ask it to summarize now with
+	// what it already has, so a capped run still produces output.
+	if capped {
+		a.wrapUp(ctx)
+	}
+
+	a.log.Debug("run complete", "tool_call_rounds", turns, "capped", capped)
 	a.persistMemory()
 	return nil
+}
+
+// wrapUp requests a final summary after the tool-call cap was hit, so a capped
+// run still yields prose (its Answer) instead of nothing. Tools are discouraged
+// and the extra turns are tightly bounded.
+func (a *Agent) wrapUp(ctx context.Context) {
+	a.log.Debug("wrap-up: requesting final summary after cap")
+	msg := genai.NewContentFromText(
+		"You've reached the tool-call limit, so stop here. Do NOT call any more tools. "+
+			"Give me your summary now based on what you've already gathered.", genai.RoleUser)
+	a.answer.Reset()
+	bounded := 0
+	for ev, err := range a.runner.Run(ctx, userID, sessionID, msg, agent.RunConfig{}) {
+		if err != nil {
+			a.log.Debug("wrap-up error", "err", err)
+			return
+		}
+		a.printEvent(ev)
+		if bounded++; bounded >= 4 {
+			break
+		}
+	}
 }
 
 // describeContent summarizes a message for a trace: its text and any non-text
