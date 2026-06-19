@@ -108,6 +108,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | `AGENTBOX_WORKSPACE`, `MOUNTS` | Host directories the agent can access. |
 | `AGENTBOX_IMAP_HOST/PORT/USER/PASS` | Read-only email (use an app password). |
 | `AGENTBOX_EMAIL_SINCE_DAYS` | Minimum lookback window (days) for email; a per-call `since_days` can widen but not narrow it; 0 = count-based only. |
+| `AGENTBOX_MAX_TOOL_CALLS` | Tool-call rounds before a run stops and is asked to summarize (default 50). |
 | `AGENTBOX_DEBUG` | Verbose debug logging to stderr (off by default). |
 | `AGENTBOX_ICS_URLS`, `AGENTBOX_TIMEZONE` | Read-only calendar (ICS feeds) + day-boundary / cron timezone. |
 | `AGENTBOX_SCHEDULE` | Path to the schedule YAML (for `serve` / `run-task`). |

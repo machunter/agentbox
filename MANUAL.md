@@ -426,6 +426,7 @@ container path.
 | `AGENTBOX_NOTES_DIR` | Where `todos.md` / `inbox.md` live. |
 | `AGENTBOX_CAPTURE_DIR` / `AGENTBOX_CAPTURE_HOST` | Capture inbox (container path / host folder). |
 | `AGENTBOX_SCHEDULE` / `AGENTBOX_SCHEDULE_FILE` | Schedule YAML path (in-container / host). |
+| `AGENTBOX_MAX_TOOL_CALLS` | Max tool-call rounds per run before it stops and summarizes (default 50). Raise for busy work mailboxes. |
 | `AGENTBOX_DEBUG` | `1` = verbose debug logging to stderr (off by default). |
 | `AGENTBOX_JOURNAL_DIR` / `AGENTBOX_JOURNAL_HOST` | Daily-output markdown files (one per day) / host mount. |
 
