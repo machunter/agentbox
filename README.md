@@ -259,7 +259,7 @@ the morning briefing, what it captured, and so on. Location is
 | `AGENTBOX_IMAP_PORT` | `993` | IMAP port (implicit TLS). |
 | `AGENTBOX_IMAP_USER` | — | IMAP username. |
 | `AGENTBOX_IMAP_PASS` | — | IMAP password (use an app password). |
-| `AGENTBOX_EMAIL_SINCE_DAYS` | `0` (no limit) | Default lookback window (days) for the email tools. |
+| `AGENTBOX_EMAIL_SINCE_DAYS` | `0` (no limit) | Minimum lookback window (days) for the email tools; a per-call `since_days` can widen it but not narrow below this. |
 | `AGENTBOX_ICS_URLS` | — | Calendar ICS feed URLs (comma-separated); enables calendar tools. |
 | `AGENTBOX_TIMEZONE` | `UTC` | Timezone for day boundaries, event times, and cron schedules. |
 | `AGENTBOX_SCHEDULE` | — | Path to the schedule YAML (required for `serve` / `run-task`). |
@@ -281,8 +281,11 @@ password. Sending is intentionally not supported yet — it will come as a
 separate, confirmation-gated capability.
 
 By default the email tools are count-bounded (most recent N messages). Set
-`AGENTBOX_EMAIL_SINCE_DAYS` to also bound them by time (e.g. `7` = only mail from
-the last week); the agent can override per call with a `since_days` argument.
+`AGENTBOX_EMAIL_SINCE_DAYS` to also bound them by time (e.g. `7` = at least the
+last week). This is a **minimum**: the agent can widen the window per call with a
+`since_days` argument, but can't narrow it below your configured value — so if
+you set `14`, every email scan covers at least 14 days regardless of what the
+agent requests.
 
 Email stays subject to the same privacy
 caveat as everything else: message content the agent reasons over is sent to

@@ -191,9 +191,13 @@ func TestEffectiveSince(t *testing.T) {
 	if got := daysSince(s.effectiveSince(0)); got != 5 {
 		t.Errorf("config default -> daysSince=%d, want 5", got)
 	}
-	// Tool param wins over config default.
-	if got := daysSince(s.effectiveSince(3)); got != 3 {
-		t.Errorf("tool override -> daysSince=%d, want 3", got)
+	// Config acts as a floor: a smaller tool value is raised to the minimum.
+	if got := daysSince(s.effectiveSince(3)); got != 5 {
+		t.Errorf("tool below floor -> daysSince=%d, want 5 (floor)", got)
+	}
+	// A larger tool value widens the window past the floor.
+	if got := daysSince(s.effectiveSince(10)); got != 10 {
+		t.Errorf("tool above floor -> daysSince=%d, want 10", got)
 	}
 }
 
