@@ -37,8 +37,9 @@ type Config struct {
 	Port string
 	User string
 	Pass string
-	// SinceDays is the default lookback window: list/search only return mail from
-	// the last N days. 0 means no date filter (count-based only).
+	// SinceDays is the minimum lookback window: list/search only return mail from
+	// at least the last N days. A per-call since_days can widen it but not narrow
+	// it below this floor. 0 means no date filter (count-based only).
 	SinceDays int
 }
 
@@ -61,13 +62,12 @@ func LoadConfig() (Config, bool) {
 	return c, configured
 }
 
-// effectiveSince resolves the lookback cutoff: a per-call toolDays (> 0) wins,
-// else the configured default. Returns the zero time when no filter applies.
+// effectiveSince resolves the lookback cutoff. The configured default
+// (AGENTBOX_EMAIL_SINCE_DAYS) acts as a floor: a per-call toolDays can widen the
+// window but never narrow it below the configured minimum. Returns the zero time
+// when neither imposes a filter.
 func (s *server) effectiveSince(toolDays int) time.Time {
-	days := toolDays
-	if days <= 0 {
-		days = s.cfg.SinceDays
-	}
+	days := max(toolDays, s.cfg.SinceDays)
 	if days <= 0 {
 		return time.Time{}
 	}
@@ -140,14 +140,14 @@ func (s *server) withClient(fn func(*imapclient.Client) (string, error)) (string
 type listInput struct {
 	Mailbox   string `json:"mailbox" jsonschema:"mailbox to list; empty means INBOX. Aliases Sent/Drafts/Trash/Junk/Archive resolve to the provider's actual folder"`
 	Limit     int    `json:"limit" jsonschema:"max messages to return (default 10, max 50)"`
-	SinceDays int    `json:"since_days" jsonschema:"only include mail from the last N days; 0 uses the configured default"`
+	SinceDays int    `json:"since_days" jsonschema:"include mail from the last N days; 0 uses the configured window. The configured minimum (AGENTBOX_EMAIL_SINCE_DAYS) is a floor — a smaller value here is raised to it, a larger value widens the window"`
 }
 
 type searchInput struct {
 	Query     string `json:"query" jsonschema:"text to search for across headers and body"`
 	Mailbox   string `json:"mailbox" jsonschema:"mailbox to search; empty means INBOX. Aliases Sent/Drafts/Trash/Junk/Archive resolve to the provider's actual folder"`
 	Limit     int    `json:"limit" jsonschema:"max messages to return (default 10, max 50)"`
-	SinceDays int    `json:"since_days" jsonschema:"only include mail from the last N days; 0 uses the configured default"`
+	SinceDays int    `json:"since_days" jsonschema:"include mail from the last N days; 0 uses the configured window. The configured minimum (AGENTBOX_EMAIL_SINCE_DAYS) is a floor — a smaller value here is raised to it, a larger value widens the window"`
 }
 
 type readInput struct {
