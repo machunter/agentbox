@@ -194,16 +194,20 @@ make compose-run TASK=""        # or schedule it (below)
 docker compose run --rm agentbox process-captures
 ```
 
-Each image is read, its todos/notes filed via the notes tools, then moved to a
-`processed/` subfolder (failures go to `failed/`). Add a `command: process-captures`
-task to `schedule.yaml` to do this automatically every N minutes. (Note: the
-image is sent to Claude at inference time, like any other content.)
+Each image is read, its todos/notes filed via the notes tools, then **deleted**
+(captures are transient, often photos of personal notes — only failures are kept,
+in a `failed/` subfolder for inspection). Add a `command: process-captures` task
+to `schedule.yaml` to do this automatically on a schedule. (Note: the image is
+sent to Claude at inference time, like any other content.)
 
 ## Scheduler (long-lived mode)
 
 Instead of one-shot tasks, agentbox can run as a long-lived process that executes
 tasks on cron schedules — e.g. a daily morning briefing that reads your email and
-calendar. Define tasks in a YAML file:
+calendar. On startup it also runs every task that fires at least daily once
+immediately, so a (re)start delivers today's briefings/captures without waiting
+for the next cron time (weekly/monthly tasks are skipped). Define tasks in a YAML
+file:
 
 ```sh
 cp schedule.example.yaml schedule.yaml   # then edit names, cron specs, prompts

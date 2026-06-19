@@ -38,7 +38,7 @@ func TestImageMIME(t *testing.T) {
 	}
 }
 
-func TestProcessMovesAndSkips(t *testing.T) {
+func TestProcessDeletesAndSkips(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "note1.jpg"), "fake-jpeg-bytes")
 	write(t, filepath.Join(dir, "note2.png"), "fake-png-bytes")
@@ -52,14 +52,14 @@ func TestProcessMovesAndSkips(t *testing.T) {
 	if n != 2 || calls != 2 {
 		t.Fatalf("processed=%d calls=%d, want 2/2", n, calls)
 	}
-	// Images moved to processed/, text left alone.
+	// Successfully filed images are deleted (not moved to processed/).
 	for _, name := range []string{"note1.jpg", "note2.png"} {
-		if _, err := os.Stat(filepath.Join(dir, "processed", name)); err != nil {
-			t.Errorf("%s not moved to processed/: %v", name, err)
-		}
 		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
-			t.Errorf("%s still in inbox", name)
+			t.Errorf("%s should have been deleted from the inbox", name)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "processed")); !os.IsNotExist(err) {
+		t.Errorf("no processed/ folder should be created")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "ignore.txt")); err != nil {
 		t.Errorf("non-image should be left in place: %v", err)

@@ -85,7 +85,15 @@ func Process(ctx context.Context, dir string, out io.Writer, factory Factory) (i
 			continue
 		}
 		log.Debug("image done", "name", e.Name())
-		moveAside(dir, "processed", e.Name(), out)
+		// Delete the image once its contents have been filed — captures are
+		// transient (and often photos of personal notes), so we don't keep
+		// copies around. Failures still go to failed/ for inspection.
+		if err := os.Remove(path); err != nil {
+			fmt.Fprintf(out, "capture: %s filed but could not be deleted: %v\n", e.Name(), err)
+			log.Debug("delete failed", "name", e.Name(), "err", err)
+		} else {
+			log.Debug("deleted processed image", "name", e.Name())
+		}
 		processed++
 	}
 	log.Debug("capture run complete", "processed", processed, "scanned", len(entries))
