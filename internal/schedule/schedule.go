@@ -150,10 +150,64 @@ func (s *Scheduler) Serve(ctx context.Context) error {
 	c.Start()
 	fmt.Fprintf(s.out, "scheduler: %d task(s) scheduled (timezone %s); waiting for their times\n", len(s.cfg.Tasks), loc)
 
+	// Startup catch-up: run every task that fires at least daily once now, so a
+	// fresh start (or restart) immediately produces today's briefings/captures
+	// instead of waiting for the next scheduled time. Done in the background so
+	// cron stays responsive and shutdown isn't blocked.
+	go s.runDailyOnce(ctx, loc)
+
 	<-ctx.Done()
 	fmt.Fprintln(s.out, "scheduler: shutting down, waiting for in-flight tasks…")
 	<-c.Stop().Done()
 	return nil
+}
+
+// runDailyOnce runs each task that fires at least once a day a single time,
+// now — a startup catch-up so restarting the scheduler delivers today's
+// briefings/captures without waiting for their next cron time. Weekly/monthly
+// tasks are skipped (you don't want a weekly review on every restart).
+func (s *Scheduler) runDailyOnce(ctx context.Context, loc *time.Location) {
+	from := time.Now().In(loc)
+	var daily []Task
+	for _, t := range s.cfg.Tasks {
+		sched, err := cron.ParseStandard(t.Schedule)
+		if err != nil {
+			continue // already validated at load; ignore defensively
+		}
+		if firesDaily(sched, from) {
+			daily = append(daily, t)
+		}
+	}
+	if len(daily) == 0 {
+		return
+	}
+	fmt.Fprintf(s.out, "scheduler: running %d daily task(s) once at startup\n", len(daily))
+	for _, t := range daily {
+		if ctx.Err() != nil {
+			return
+		}
+		s.runTask(ctx, t)
+	}
+}
+
+// firesDaily reports whether sched runs at least once every day: every gap
+// between consecutive fires is 24h or less. Sampling several consecutive gaps
+// distinguishes daily/sub-daily schedules (true) from weekly/monthly ones
+// (false), regardless of when "from" falls.
+func firesDaily(sched cron.Schedule, from time.Time) bool {
+	const day = 24 * time.Hour
+	t := sched.Next(from)
+	if t.IsZero() {
+		return false
+	}
+	for range 8 {
+		next := sched.Next(t)
+		if next.IsZero() || next.Sub(t) > day {
+			return false
+		}
+		t = next
+	}
+	return true
 }
 
 // RunOnce runs a single named task immediately (used by `run-task`).

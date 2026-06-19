@@ -5,7 +5,7 @@
 > treat it as the source of intent, not a frozen spec.
 
 **Status key:** ✅ Shipped (validated live) · 🟡 Shipped (unit-tested, not exercised live) · 🔵 Planned · 🤔 Considering
-**Last updated:** 2026-06-18 (mailbox aliases + `list_mailboxes`) · **Branch of record:** `main`
+**Last updated:** 2026-06-19 (startup daily catch-up; captures deleted after filing) · **Branch of record:** `main`
 
 ---
 
@@ -65,13 +65,13 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Long-term memory (recall across runs) | ✅ | Auto-recall (`preloadmemorytool`) + on-demand (`loadmemorytool`); persisted after each run |
 | Filesystem tools (`list_directory`, `read_file`, `search_files`) | ✅ | MCP server jailed to `/workspace` |
 | Todos & notes (`add_todo`, `list_todos`, `complete_todo`, `add_note`, `search_notes`) | ✅ | Local markdown store; always on; validated live |
-| Photo capture (vision) of todos/notes | ✅ | Drop a photo in the capture inbox; Claude vision reads it and files items; schedulable. Validated live |
+| Photo capture (vision) of todos/notes | ✅ | Drop a photo in the capture inbox; Claude vision reads it and files items, then the image is deleted (failures kept in `failed/`); schedulable. Validated live |
 | Voice capture of todos/notes | 🔵 | Same inbox, audio → text needs a local Whisper model (no cloud STT); v2 |
 | Multimodal agent input (images) | ✅ | `RunWithImage`; adapter sends inline image as a vision block |
 | Multi-directory access | ✅ | `MOUNTS` / compose override; mount under `/workspace` |
 | Email — read (`list_mailboxes`, `list_recent_emails`, `search_emails`, `read_email`) | ✅ | IMAP, read-only; count-bounded, optional date window (`AGENTBOX_EMAIL_SINCE_DAYS` / `since_days`). Mailbox aliases (`Sent`/`Drafts`/`Trash`/`Junk`/`Archive`) resolve to the provider's real folder via RFC 6154 SPECIAL-USE, so the agent can scan sent mail to e.g. close a todo once a reply went out |
 | Calendar — read (`list_upcoming_events`, `events_on_day`, `search_events`) | ✅ | ICS feeds, read-only, recurrence-expanded, all-day aware; validated live |
-| Long-lived / scheduled operation (`serve`, `run-task`) | ✅ | Cron scheduler runs YAML-configured tasks; run path validated live via `run-task`, timed firing via robfig/cron |
+| Long-lived / scheduled operation (`serve`, `run-task`) | ✅ | Cron scheduler runs YAML-configured tasks in `AGENTBOX_TIMEZONE`; on startup it runs every daily-or-more-frequent task once (catch-up); run path validated live via `run-task`, timed firing via robfig/cron |
 | Daily output journal | ✅ | Each scheduled task's result appended to `journal/YYYY-MM-DD.md`; the no-SMTP delivery channel |
 | Email — send | 🔵 | Gated by human confirmation; design pending (§8) |
 | Local LLM inference | 🤔 | Would remove the inference caveat; large effort, out of scope for now |
@@ -158,5 +158,5 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Scheduled run isolation | Fresh agent + session per fire | Tasks don't bleed into each other; still share durable memory |
 | Daily-output delivery | Dated markdown journal (no SMTP) | Readable, greppable, syncable; records the assistant's prose answer (not tool traces); SMTP/push later |
 | Notes/todos store | Plain markdown (todos.md/inbox.md) via a dedicated connector | Human-editable + syncable; precise tools beat LLM hand-editing; capture never invokes the LLM when edited directly |
-| Phone capture path | Photo of notes (Claude vision) over email-to-self | Email felt impractical to the user; a snapped photo is more natural. Vision reuses the model we already have (no new service), and moving processed files solves dedup (read-only IMAP couldn't) |
+| Phone capture path | Photo of notes (Claude vision) over email-to-self | Email felt impractical to the user; a snapped photo is more natural. Vision reuses the model we already have (no new service); deleting each image after its items are filed both prevents reprocessing and keeps no copies of personal notes (failures are kept in `failed/`) |
 | Capture inbox processing | Image in the user message (not a tool result) | The adapter's verified image path is on input; per-image fresh agent run keeps captures isolated |

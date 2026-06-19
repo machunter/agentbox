@@ -226,10 +226,11 @@ Drop an image there, then:
 docker compose run --rm agentbox process-captures
 ```
 
-Each image's todos/notes are filed, and the image is moved to a `processed/`
-subfolder (failures go to `failed/`). Tip: handwriting recognition is usually
-good but depends on legibility. To do this automatically, see the schedule
-below.
+Each image's todos/notes are filed, and the image is then **deleted** (captures
+are transient — often photos of personal notes — so no copies are kept; only
+failures are retained in a `failed/` subfolder for inspection). Tip: handwriting
+recognition is usually good but depends on legibility. To do this automatically,
+see the schedule below.
 
 ## 10. Run it on a schedule
 
@@ -268,7 +269,11 @@ Test a task immediately, without waiting for its time:
 make compose-run-task NAME=morning-briefing
 ```
 
-Schedules fire in `AGENTBOX_TIMEZONE`.
+Schedules fire in `AGENTBOX_TIMEZONE`. On startup the scheduler also runs every
+task that fires at least once a day a single time right away, so starting (or
+restarting) it delivers today's briefings and processes any waiting captures
+without waiting for the next cron time. Weekly and monthly tasks (e.g. a Friday
+review) are not run at startup.
 
 **Daily output file.** Each scheduled task's result is appended to
 `journal/YYYY-MM-DD.md` (one file per day) under a timestamped heading — the

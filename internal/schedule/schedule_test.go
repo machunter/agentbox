@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	cron "github.com/robfig/cron/v3"
+
 	"github.com/burcsahinoglu/agentbox/internal/journal"
 )
 
@@ -179,6 +181,58 @@ func TestRunOnceJournalsAnswer(t *testing.T) {
 	data, _ := os.ReadFile(files[0])
 	if !strings.Contains(string(data), "All clear today.") || !strings.Contains(string(data), "brief") {
 		t.Errorf("journal missing answer/heading:\n%s", data)
+	}
+}
+
+func TestFiresDaily(t *testing.T) {
+	// A Wednesday afternoon, so weekly tasks land on varied weekdays.
+	from := time.Date(2026, 6, 17, 14, 0, 0, 0, time.UTC)
+	cases := []struct {
+		schedule string
+		want     bool
+	}{
+		{"0 8 * * *", true},        // once a day
+		{"0 8,13,18 * * *", true},  // three times a day
+		{"50 7,12,17 * * *", true}, // captures
+		{"*/30 * * * *", true},     // every 30 min
+		{"@daily", true},
+		{"@hourly", true},
+		{"0 17 * * 5", false}, // Fridays only
+		{"@weekly", false},
+		{"@monthly", false},
+		{"0 9 1 * *", false}, // first of the month
+	}
+	for _, c := range cases {
+		sched, err := cron.ParseStandard(c.schedule)
+		if err != nil {
+			t.Fatalf("parse %q: %v", c.schedule, err)
+		}
+		if got := firesDaily(sched, from); got != c.want {
+			t.Errorf("firesDaily(%q) = %v, want %v", c.schedule, got, c.want)
+		}
+	}
+}
+
+func TestRunDailyOnceSkipsNonDaily(t *testing.T) {
+	cfg := &Config{Tasks: []Task{
+		{Name: "morning", Schedule: "0 8 * * *", Prompt: "morning brief"},
+		{Name: "weekly", Schedule: "0 17 * * 5", Prompt: "weekly review"},
+		{Name: "captures", Schedule: "50 7,12,17 * * *", Command: "process-captures"},
+	}}
+	var prompts []string
+	ranCommand := false
+	commands := map[string]CommandFunc{
+		"process-captures": func(_ context.Context, _ io.Writer) (string, error) { ranCommand = true; return "", nil },
+	}
+	s := New(cfg, io.Discard, fakeFactory(&prompts), commands, nil, time.UTC)
+
+	s.runDailyOnce(context.Background(), time.UTC)
+
+	if len(prompts) != 1 || prompts[0] != "morning brief" {
+		t.Errorf("daily prompt tasks run = %v, want only [morning brief]", prompts)
+	}
+	if !ranCommand {
+		t.Error("daily command task (captures) should have run at startup")
 	}
 }
 
