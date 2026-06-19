@@ -46,8 +46,10 @@ adapter.
   ADK's `mcptoolset` — the pattern for adding external connectors. It gives the
   model cleaner, read-only file primitives alongside `run_bash`.
 - **`internal/mcpmail`** — a read-only email MCP server over IMAP
-  (`list_mailboxes`, `list_recent_emails`, `search_emails`, `read_email`),
-  launched the same way. Mailbox aliases (`Sent`/`Drafts`/`Trash`/`Junk`/`Archive`)
+  (`list_new_emails`, `list_recent_emails`, `search_emails`, `read_email`,
+  `list_mailboxes`), launched the same way. `list_new_emails` is incremental —
+  a persisted per-mailbox UID watermark means briefings only see genuinely new
+  mail. Mailbox aliases (`Sent`/`Drafts`/`Trash`/`Junk`/`Archive`)
   resolve to the provider's real folder via SPECIAL-USE. Enabled only when IMAP
   credentials are configured; otherwise silently skipped.
 - **`internal/mcpcal`** — a read-only calendar MCP server over iCal (ICS) feeds
@@ -287,6 +289,13 @@ last week). This is a **minimum**: the agent can widen the window per call with 
 `since_days` argument, but can't narrow it below your configured value — so if
 you set `14`, every email scan covers at least 14 days regardless of what the
 agent requests.
+
+For recurring briefings, `list_new_emails` is **incremental**: it returns only
+messages with a UID higher than the last one it processed for that mailbox, then
+advances a persisted watermark (in `AGENTBOX_MAIL_STATE_DIR`, defaulting to the
+memory volume). So the same email is never re-examined across the day's
+briefings, which avoids duplicate todos. The watermark is per-mailbox and
+UIDVALIDITY-aware (it re-baselines if the server resets UIDs).
 
 Email stays subject to the same privacy
 caveat as everything else: message content the agent reasons over is sent to

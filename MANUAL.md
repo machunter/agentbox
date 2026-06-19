@@ -172,6 +172,13 @@ last week). This is a **minimum window**: the agent can widen it per request
 `AGENTBOX_EMAIL_SINCE_DAYS=14` guarantees every scan covers at least 14 days,
 even if a briefing only asks for "today's" mail.
 
+For the briefings, the agent uses `list_new_emails`, which is **incremental**:
+it returns only mail it hasn't processed before (tracked by a per-mailbox UID
+watermark saved in `AGENTBOX_MAIL_STATE_DIR`, defaulting to the memory volume),
+so the same message isn't turned into a todo twice across the day's briefings.
+The first run after setup processes the recent backlog (bounded by the
+since-days window), then each later run only sees genuinely new mail.
+
 The agent can also scan folders other than the inbox. Mailbox aliases —
 `Sent`, `Drafts`, `Trash`, `Junk`, `Archive` — resolve to your provider's actual
 folder name (which varies: `Sent`, `Sent Items`, `[Gmail]/Sent Mail`, …) via the
@@ -421,6 +428,7 @@ container path.
 | `AGENTBOX_EMBED_MODEL` / `AGENTBOX_OLLAMA_URL` | Embedding model / Ollama URL. |
 | `AGENTBOX_IMAP_HOST` / `_PORT` / `_USER` / `_PASS` | Email (read-only); app password. |
 | `AGENTBOX_EMAIL_SINCE_DAYS` | Minimum lookback window (days) for email tools; the agent can widen but not narrow it; 0/unset = no date limit. |
+| `AGENTBOX_MAIL_STATE_DIR` | Where `list_new_emails` stores per-mailbox UID watermarks (default: the memory dir). |
 | `AGENTBOX_ICS_URLS` | Calendar ICS feed URLs (comma-separated). |
 | `AGENTBOX_TIMEZONE` | Timezone for day boundaries and cron (e.g. `America/Los_Angeles`). |
 | `AGENTBOX_NOTES_DIR` | Where `todos.md` / `inbox.md` live. |
