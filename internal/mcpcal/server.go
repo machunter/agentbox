@@ -17,7 +17,9 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	ical "github.com/emersion/go-ical"
@@ -29,8 +31,21 @@ const (
 	defaultSearchDays   = 30
 	maxDays             = 366
 	maxEvents           = 100
-	fetchTimeout        = 20 * time.Second
+	defaultFetchTimeout = 60 * time.Second
+	cacheTTL            = 5 * time.Minute
 )
+
+// fetchTimeout is the per-feed HTTP timeout. Large feeds (work calendars can be
+// tens of MB) need more than a few seconds, so it's overridable via
+// AGENTBOX_CAL_TIMEOUT (seconds).
+func fetchTimeout() time.Duration {
+	if v := os.Getenv("AGENTBOX_CAL_TIMEOUT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return defaultFetchTimeout
+}
 
 // Config holds the calendar feeds and the timezone used to interpret day
 // boundaries and floating event times.
@@ -69,6 +84,12 @@ func Configured() bool {
 type server struct {
 	cfg    Config
 	client *http.Client
+
+	// In-process cache so the several tool calls in one briefing don't each
+	// re-download the feeds (work calendars can be tens of MB).
+	mu       sync.Mutex
+	cached   []*ical.Calendar
+	cachedAt time.Time
 }
 
 // Serve runs the calendar MCP server over stdio until the context is cancelled.
@@ -77,7 +98,7 @@ func Serve(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("calendar not configured (set AGENTBOX_ICS_URLS)")
 	}
-	s := &server{cfg: cfg, client: &http.Client{Timeout: fetchTimeout}}
+	s := &server{cfg: cfg, client: &http.Client{Timeout: fetchTimeout()}}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "agentbox-calendar", Version: "0.1.0"}, nil)
 	s.registerTools(srv)
 	return srv.Run(ctx, &mcp.StdioTransport{})
@@ -91,7 +112,7 @@ func CheckConnection(ctx context.Context) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("calendar not configured (set AGENTBOX_ICS_URLS)")
 	}
-	s := &server{cfg: cfg, client: &http.Client{Timeout: fetchTimeout}}
+	s := &server{cfg: cfg, client: &http.Client{Timeout: fetchTimeout()}}
 	return s.upcoming(ctx, defaultUpcomingDays, maxEvents)
 }
 
@@ -182,13 +203,30 @@ func (s *server) search(ctx context.Context, query string, days int) (string, er
 	return formatInstances(capInstances(matched, maxEvents), s.cfg.Loc), nil
 }
 
-// instances fetches all feeds and returns event occurrences within the window.
+// instances returns event occurrences within the window from the cached feeds.
 func (s *server) instances(ctx context.Context, winStart, winEnd time.Time) ([]eventInstance, error) {
-	cals, err := s.fetchAll(ctx)
+	cals, err := s.calendars(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return collectInstances(cals, winStart, winEnd, s.cfg.Loc), nil
+}
+
+// calendars returns the parsed feeds, caching them for cacheTTL so the several
+// tool calls in a single briefing reuse one download instead of re-fetching
+// large feeds each time. The cache lives only in this short-lived subprocess.
+func (s *server) calendars(ctx context.Context) ([]*ical.Calendar, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cached != nil && time.Since(s.cachedAt) < cacheTTL {
+		return s.cached, nil
+	}
+	cals, err := s.fetchAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.cached, s.cachedAt = cals, time.Now()
+	return cals, nil
 }
 
 // transportCause unwraps a *url.Error to its underlying cause, which omits the
