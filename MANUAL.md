@@ -365,6 +365,11 @@ agent still runs, just without long-term memory.
 **Calendar shows nothing / wrong day** — check the ICS URL with `cal-check`, and
 set `AGENTBOX_TIMEZONE` to your zone (e.g. `America/Los_Angeles`).
 
+**`cal-check: … fetch failed: … (Client.Timeout exceeded…)`** — the ICS feed is
+too big to download in time (busy work calendars can be tens of MB). Raise the
+timeout, e.g. `AGENTBOX_CAL_TIMEOUT=120`, and recreate the container. `cal-check`
+now reports the real cause (TLS, DNS, timeout) instead of a bare "fetch failed".
+
 **Docker errors like "read-only file system" or layer-register failures** — the
 Docker Desktop disk is full or wedged. Restart Docker Desktop and/or run
 `docker system prune` to reclaim space, then retry.
@@ -430,6 +435,7 @@ container path.
 | `AGENTBOX_EMAIL_SINCE_DAYS` | Minimum lookback window (days) for email tools; the agent can widen but not narrow it; 0/unset = no date limit. |
 | `AGENTBOX_MAIL_STATE_DIR` | Where `list_new_emails` stores per-mailbox UID watermarks (default: the memory dir). |
 | `AGENTBOX_ICS_URLS` | Calendar ICS feed URLs (comma-separated). |
+| `AGENTBOX_CAL_TIMEOUT` | Seconds to fetch an ICS feed (default 60); raise for large feeds. |
 | `AGENTBOX_TIMEZONE` | Timezone for day boundaries and cron (e.g. `America/Los_Angeles`). |
 | `AGENTBOX_NOTES_DIR` | Where `todos.md` / `inbox.md` live. |
 | `AGENTBOX_CAPTURE_DIR` / `AGENTBOX_CAPTURE_HOST` | Capture inbox (container path / host folder). |

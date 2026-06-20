@@ -1,9 +1,14 @@
 package mcpcal
 
 import (
+	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -188,5 +193,41 @@ func TestTransportCauseStripsSecretURL(t *testing.T) {
 	plain := errors.New("boom")
 	if transportCause(plain) != plain {
 		t.Error("plain error should pass through unchanged")
+	}
+}
+
+func TestFetchTimeoutEnv(t *testing.T) {
+	t.Setenv("AGENTBOX_CAL_TIMEOUT", "")
+	if got := fetchTimeout(); got != defaultFetchTimeout {
+		t.Errorf("unset = %v, want default %v", got, defaultFetchTimeout)
+	}
+	t.Setenv("AGENTBOX_CAL_TIMEOUT", "120")
+	if got := fetchTimeout(); got != 120*time.Second {
+		t.Errorf("env 120 = %v, want 120s", got)
+	}
+	for _, bad := range []string{"junk", "0", "-5"} {
+		t.Setenv("AGENTBOX_CAL_TIMEOUT", bad)
+		if got := fetchTimeout(); got != defaultFetchTimeout {
+			t.Errorf("env %q = %v, want default", bad, got)
+		}
+	}
+}
+
+func TestCalendarsCachesWithinTTL(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		io.WriteString(w, "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//t//EN\r\nEND:VCALENDAR\r\n")
+	}))
+	defer srv.Close()
+
+	s := &server{cfg: Config{URLs: []string{srv.URL}, Loc: time.UTC}, client: srv.Client()}
+	for range 3 {
+		if _, err := s.calendars(context.Background()); err != nil {
+			t.Fatalf("calendars: %v", err)
+		}
+	}
+	if n := atomic.LoadInt32(&hits); n != 1 {
+		t.Errorf("feed fetched %d times across 3 calls, want 1 (cached)", n)
 	}
 }
