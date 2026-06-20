@@ -436,6 +436,7 @@ container path.
 | `AGENTBOX_MAIL_STATE_DIR` | Where `list_new_emails` stores per-mailbox UID watermarks (default: the memory dir). |
 | `AGENTBOX_ICS_URLS` | Calendar ICS feed URLs (comma-separated). |
 | `AGENTBOX_CAL_TIMEOUT` | Seconds to fetch an ICS feed (default 60); raise for large feeds. |
+| `AGENTBOX_CAL_CACHE_TTL` | Seconds to reuse a cached ICS feed before revalidating (default 900); `0` = always revalidate. |
 | `AGENTBOX_TIMEZONE` | Timezone for day boundaries and cron (e.g. `America/Los_Angeles`). |
 | `AGENTBOX_NOTES_DIR` | Where `todos.md` / `inbox.md` live. |
 | `AGENTBOX_CAPTURE_DIR` / `AGENTBOX_CAPTURE_HOST` | Capture inbox (container path / host folder). |

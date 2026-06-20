@@ -264,6 +264,7 @@ the morning briefing, what it captured, and so on. Location is
 | `AGENTBOX_EMAIL_SINCE_DAYS` | `0` (no limit) | Minimum lookback window (days) for the email tools; a per-call `since_days` can widen it but not narrow below this. |
 | `AGENTBOX_ICS_URLS` | — | Calendar ICS feed URLs (comma-separated); enables calendar tools. |
 | `AGENTBOX_CAL_TIMEOUT` | `60` | Seconds to fetch an ICS feed; raise for large feeds (tens of MB). |
+| `AGENTBOX_CAL_CACHE_TTL` | `900` | Seconds to reuse a cached ICS feed before revalidating (conditional GET); `0` = always revalidate. |
 | `AGENTBOX_TIMEZONE` | `UTC` | Timezone for day boundaries, event times, and cron schedules. |
 | `AGENTBOX_SCHEDULE` | — | Path to the schedule YAML (required for `serve` / `run-task`). |
 | `AGENTBOX_MAX_TOOL_CALLS` | `50` | Max tool-call rounds before a run is stopped (then it's asked to summarize). Raise for busy work mailboxes. |
