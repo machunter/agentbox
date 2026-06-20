@@ -231,3 +231,82 @@ func TestCalendarsCachesWithinTTL(t *testing.T) {
 		t.Errorf("feed fetched %d times across 3 calls, want 1 (cached)", n)
 	}
 }
+
+func TestFeedCacheRoundTrip(t *testing.T) {
+	c := newFeedCache(t.TempDir())
+	if _, ok := c.load("https://x/secret/cal.ics"); ok {
+		t.Error("empty cache should miss")
+	}
+	e := cacheEntry{ETag: `"v1"`, LastModified: "Mon, 01 Jun 2026 00:00:00 GMT", FetchedAt: time.Now(), Body: "BODY"}
+	if err := c.save("https://x/secret/cal.ics", e); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := c.load("https://x/secret/cal.ics")
+	if !ok || got.Body != "BODY" || got.ETag != `"v1"` {
+		t.Errorf("roundtrip = %+v ok=%v", got, ok)
+	}
+	// Disabled (empty dir) and nil are safe no-ops.
+	var nc *feedCache
+	if _, ok := nc.load("x"); ok {
+		t.Error("nil cache should miss")
+	}
+	if err := nc.save("x", e); err != nil {
+		t.Errorf("nil save: %v", err)
+	}
+}
+
+func TestFetchFeedConditionalGET(t *testing.T) {
+	t.Setenv("AGENTBOX_CAL_CACHE_TTL", "0") // always revalidate (no fast-path)
+	const etag = `"v1"`
+	var full, notModified int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("If-None-Match") == etag {
+			atomic.AddInt32(&notModified, 1)
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		atomic.AddInt32(&full, 1)
+		w.Header().Set("ETag", etag)
+		io.WriteString(w, sampleICS)
+	}))
+	defer srv.Close()
+
+	s := &server{cfg: Config{URLs: []string{srv.URL}, Loc: time.UTC}, client: srv.Client(), cache: newFeedCache(t.TempDir())}
+	b1, err := s.fetchFeed(context.Background(), srv.URL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b2, err := s.fetchFeed(context.Background(), srv.URL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b1) != string(b2) {
+		t.Error("body changed after a 304 revalidation")
+	}
+	if full != 1 {
+		t.Errorf("full downloads = %d, want 1", full)
+	}
+	if notModified != 1 {
+		t.Errorf("304 revalidations = %d, want 1", notModified)
+	}
+}
+
+func TestFetchFeedTTLFastPathSkipsNetwork(t *testing.T) {
+	t.Setenv("AGENTBOX_CAL_CACHE_TTL", "3600") // long TTL: serve cached without revalidating
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		io.WriteString(w, sampleICS)
+	}))
+	defer srv.Close()
+
+	s := &server{cfg: Config{URLs: []string{srv.URL}, Loc: time.UTC}, client: srv.Client(), cache: newFeedCache(t.TempDir())}
+	for range 3 {
+		if _, err := s.fetchFeed(context.Background(), srv.URL, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if hits != 1 {
+		t.Errorf("network hits = %d, want 1 (TTL fast-path)", hits)
+	}
+}

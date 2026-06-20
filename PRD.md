@@ -70,7 +70,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Multimodal agent input (images) | ✅ | `RunWithImage`; adapter sends inline image as a vision block |
 | Multi-directory access | ✅ | `MOUNTS` / compose override; mount under `/workspace` |
 | Email — read (`list_new_emails`, `list_recent_emails`, `search_emails`, `read_email`, `list_mailboxes`) | ✅ | IMAP, read-only; count-bounded, optional date window (`AGENTBOX_EMAIL_SINCE_DAYS` floor / `since_days`). `list_new_emails` is incremental: a persisted per-mailbox UID watermark (UIDVALIDITY-aware) means briefings only process genuinely new mail, no reprocessing/duplicate todos. Mailbox aliases (`Sent`/`Drafts`/`Trash`/`Junk`/`Archive`) resolve to the provider's real folder via RFC 6154 SPECIAL-USE, so the agent can scan sent mail to e.g. close a todo once a reply went out |
-| Calendar — read (`list_upcoming_events`, `events_on_day`, `search_events`) | ✅ | ICS feeds, read-only, recurrence-expanded, all-day aware; validated live |
+| Calendar — read (`list_upcoming_events`, `events_on_day`, `search_events`) | ✅ | ICS feeds, read-only, recurrence-expanded, all-day aware; validated live. Configurable fetch timeout; in-run + cross-run caching (conditional GET / 304) so large feeds (tens of MB) aren't re-downloaded each run. The full feed is filtered to the query window in-process — only matched events enter the model context |
 | Long-lived / scheduled operation (`serve`, `run-task`) | ✅ | Cron scheduler runs YAML-configured tasks in `AGENTBOX_TIMEZONE`; on startup it runs every daily-or-more-frequent task once (catch-up); run path validated live via `run-task`, timed firing via robfig/cron |
 | Daily output journal | ✅ | Each scheduled task's result appended to `journal/YYYY-MM-DD.md`; the no-SMTP delivery channel |
 | Email — send | 🔵 | Gated by human confirmation; design pending (§8) |
@@ -110,6 +110,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | `AGENTBOX_EMAIL_SINCE_DAYS` | Minimum lookback window (days) for email; a per-call `since_days` can widen but not narrow it; 0 = count-based only. |
 | `AGENTBOX_MAIL_STATE_DIR` | Where `list_new_emails` persists per-mailbox UID watermarks (default: the memory dir). |
 | `AGENTBOX_CAL_TIMEOUT` | HTTP timeout (seconds) for fetching ICS feeds; raise for large feeds (default 60). |
+| `AGENTBOX_CAL_CACHE_TTL` | Seconds to reuse a cached ICS feed before revalidating via conditional GET (default 900; 0 = always revalidate). |
 | `AGENTBOX_MAX_TOOL_CALLS` | Tool-call rounds before a run stops and is asked to summarize (default 50). |
 | `AGENTBOX_DEBUG` | Verbose debug logging to stderr (off by default). |
 | `AGENTBOX_ICS_URLS`, `AGENTBOX_TIMEZONE` | Read-only calendar (ICS feeds) + day-boundary / cron timezone. |

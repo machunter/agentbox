@@ -10,9 +10,11 @@
 package mcpcal
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -33,6 +35,7 @@ const (
 	maxEvents           = 100
 	defaultFetchTimeout = 60 * time.Second
 	cacheTTL            = 5 * time.Minute
+	maxFeedBytes        = 64 << 20 // 64 MiB cap on a single ICS feed
 )
 
 // fetchTimeout is the per-feed HTTP timeout. Large feeds (work calendars can be
@@ -84,9 +87,10 @@ func Configured() bool {
 type server struct {
 	cfg    Config
 	client *http.Client
+	cache  *feedCache // cross-run on-disk body cache (conditional GET)
 
 	// In-process cache so the several tool calls in one briefing don't each
-	// re-download the feeds (work calendars can be tens of MB).
+	// re-download/re-parse the feeds (work calendars can be tens of MB).
 	mu       sync.Mutex
 	cached   []*ical.Calendar
 	cachedAt time.Time
@@ -98,7 +102,7 @@ func Serve(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("calendar not configured (set AGENTBOX_ICS_URLS)")
 	}
-	s := &server{cfg: cfg, client: &http.Client{Timeout: fetchTimeout()}}
+	s := &server{cfg: cfg, client: &http.Client{Timeout: fetchTimeout()}, cache: newFeedCache(calCacheDir())}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "agentbox-calendar", Version: "0.1.0"}, nil)
 	s.registerTools(srv)
 	return srv.Run(ctx, &mcp.StdioTransport{})
@@ -112,7 +116,7 @@ func CheckConnection(ctx context.Context) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("calendar not configured (set AGENTBOX_ICS_URLS)")
 	}
-	s := &server{cfg: cfg, client: &http.Client{Timeout: fetchTimeout()}}
+	s := &server{cfg: cfg, client: &http.Client{Timeout: fetchTimeout()}, cache: newFeedCache(calCacheDir())}
 	return s.upcoming(ctx, defaultUpcomingDays, maxEvents)
 }
 
@@ -243,29 +247,83 @@ func transportCause(err error) error {
 func (s *server) fetchAll(ctx context.Context) ([]*ical.Calendar, error) {
 	cals := make([]*ical.Calendar, 0, len(s.cfg.URLs))
 	for i, u := range s.cfg.URLs {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		body, err := s.fetchFeed(ctx, u, i)
 		if err != nil {
-			return nil, fmt.Errorf("calendar %d: %w", i+1, err)
+			return nil, err
 		}
-		resp, err := s.client.Do(req)
+		cal, err := ical.NewDecoder(bytes.NewReader(body)).Decode()
 		if err != nil {
-			// Surface the transport cause (DNS, TLS, timeout) for diagnosis, but
-			// strip the URL — it carries the secret feed token.
-			return nil, fmt.Errorf("calendar %d: fetch failed: %v", i+1, transportCause(err))
-		}
-		cal, derr := func() (*ical.Calendar, error) {
-			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				return nil, fmt.Errorf("calendar %d: status %d", i+1, resp.StatusCode)
-			}
-			return ical.NewDecoder(resp.Body).Decode()
-		}()
-		if derr != nil {
-			return nil, derr
+			return nil, fmt.Errorf("calendar %d: parse failed: %w", i+1, err)
 		}
 		cals = append(cals, cal)
 	}
 	return cals, nil
+}
+
+// fetchFeed returns an ICS feed's bytes, backed by a cross-run on-disk cache
+// with HTTP conditional requests. Within the cache TTL it skips the network
+// entirely; past it, it revalidates with If-None-Match/If-Modified-Since and
+// reuses the cached body on 304 (a few bytes) instead of re-downloading tens of
+// MB. On a transport error or non-OK status it falls back to any cached copy
+// rather than failing the whole run.
+func (s *server) fetchFeed(ctx context.Context, u string, i int) ([]byte, error) {
+	cached, haveCache := s.cache.load(u)
+	if haveCache {
+		if ttl := calCacheTTL(); ttl > 0 && time.Since(cached.FetchedAt) < ttl {
+			return []byte(cached.Body), nil
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("calendar %d: %w", i+1, err)
+	}
+	if haveCache {
+		if cached.ETag != "" {
+			req.Header.Set("If-None-Match", cached.ETag)
+		}
+		if cached.LastModified != "" {
+			req.Header.Set("If-Modified-Since", cached.LastModified)
+		}
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		if haveCache {
+			return []byte(cached.Body), nil // serve stale rather than fail
+		}
+		// Surface the transport cause (DNS, TLS, timeout), but strip the URL —
+		// it carries the secret feed token.
+		return nil, fmt.Errorf("calendar %d: fetch failed: %v", i+1, transportCause(err))
+	}
+	defer resp.Body.Close()
+
+	switch {
+	case resp.StatusCode == http.StatusNotModified && haveCache:
+		cached.FetchedAt = time.Now()
+		_ = s.cache.save(u, cached) // refresh freshness; body unchanged
+		return []byte(cached.Body), nil
+	case resp.StatusCode != http.StatusOK:
+		if haveCache {
+			return []byte(cached.Body), nil
+		}
+		return nil, fmt.Errorf("calendar %d: status %d", i+1, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFeedBytes))
+	if err != nil {
+		if haveCache {
+			return []byte(cached.Body), nil
+		}
+		return nil, fmt.Errorf("calendar %d: read failed: %v", i+1, transportCause(err))
+	}
+	_ = s.cache.save(u, cacheEntry{
+		ETag:         resp.Header.Get("ETag"),
+		LastModified: resp.Header.Get("Last-Modified"),
+		FetchedAt:    time.Now(),
+		Body:         string(body),
+	})
+	return body, nil
 }
 
 // --- pure helpers (independently testable) ---
