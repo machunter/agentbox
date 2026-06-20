@@ -3,6 +3,8 @@ package agent
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -67,5 +69,33 @@ func TestForCaptureOption(t *testing.T) {
 	ForCapture()(&o)
 	if !o.capture {
 		t.Error("ForCapture() should set capture mode")
+	}
+}
+
+func TestToolsDirEnv(t *testing.T) {
+	t.Setenv("AGENTBOX_TOOLS_DIR", "/data/tools")
+	if got := ToolsDir(); got != "/data/tools" {
+		t.Errorf("ToolsDir() = %q, want /data/tools", got)
+	}
+	t.Setenv("AGENTBOX_TOOLS_DIR", "")
+	if got := ToolsDir(); !strings.HasSuffix(got, ".agentbox/tools") {
+		t.Errorf("default ToolsDir() = %q, want …/.agentbox/tools", got)
+	}
+}
+
+func TestToolsSectionInjectsIndex(t *testing.T) {
+	dir := t.TempDir()
+	// No index yet -> protocol present, marked empty.
+	s := toolsSection(dir)
+	if !strings.Contains(s, dir) || !strings.Contains(s, "empty — no tools saved yet") {
+		t.Errorf("empty toolsSection missing protocol/empty marker:\n%s", s)
+	}
+	// With an index -> its contents are injected.
+	if err := os.WriteFile(filepath.Join(dir, "INDEX.md"), []byte("- weekday.py — print the weekday — `weekday.py <date>`"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s = toolsSection(dir)
+	if !strings.Contains(s, "weekday.py") {
+		t.Errorf("toolsSection did not inject the index:\n%s", s)
 	}
 }

@@ -428,6 +428,7 @@ container path.
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Google API key — for `gemini-*` models. |
 | `AGENTBOX_NAMESPACE` | Memory isolation (`personal` / `work`). Default `default`. |
 | `AGENTBOX_WORKSPACE` | Host dir mounted at `/workspace`. Default current dir. |
+| `AGENTBOX_TOOLS_HOST` | Host dir for the agent's persistent, self-built tool library (default `./tools`). |
 | `MOUNTS` (make var) | Extra `host:container` mounts for a run. |
 | `AGENTBOX_MEMORY_DIR` | Where the vector store persists. |
 | `AGENTBOX_EMBED_MODEL` / `AGENTBOX_OLLAMA_URL` | Embedding model / Ollama URL. |

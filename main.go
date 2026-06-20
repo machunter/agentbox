@@ -35,6 +35,11 @@ func main() {
 	// scheduler and it misjudges the time of day (e.g. morning read as evening).
 	applyTimezone()
 
+	// Make the persistent tool library available: ensure the directory exists
+	// and is on PATH so scripts the agent saves there are runnable by name in
+	// later runs (run_bash children inherit this environment).
+	ensureToolsDir()
+
 	// Internal subcommand: run as the filesystem MCP server over stdio. agentbox
 	// launches itself this way (see internal/agent); it needs no API key, so this
 	// dispatch comes first.
@@ -240,6 +245,17 @@ func agentTimezone() *time.Location {
 		}
 	}
 	return time.UTC
+}
+
+// ensureToolsDir creates the persistent tool-library directory and appends it
+// to PATH, so the agent can save scripts there and invoke them by name in later
+// runs. Child processes (run_bash) inherit the modified PATH.
+func ensureToolsDir() {
+	dir := agent.ToolsDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return // best-effort; the agent can still create it when it saves a tool
+	}
+	os.Setenv("PATH", os.Getenv("PATH")+string(os.PathListSeparator)+dir)
 }
 
 // applyTimezone makes the configured timezone the process default, so log

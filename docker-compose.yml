@@ -30,6 +30,7 @@ x-agentbox-env: &agentbox-env
   AGENTBOX_EMBED_MODEL: ${AGENTBOX_EMBED_MODEL:-nomic-embed-text}
   AGENTBOX_MEMORY_DIR: /data/memory
   AGENTBOX_MAIL_STATE_DIR: ${AGENTBOX_MAIL_STATE_DIR:-/data/memory}
+  AGENTBOX_TOOLS_DIR: /data/tools
   AGENTBOX_NAMESPACE: ${AGENTBOX_NAMESPACE:-default}
   AGENTBOX_IMAP_HOST: ${AGENTBOX_IMAP_HOST:-}
   AGENTBOX_IMAP_PORT: ${AGENTBOX_IMAP_PORT:-993}
@@ -89,6 +90,7 @@ services:
       - agentbox_memory:/data/memory
       - ${AGENTBOX_CAPTURE_HOST:-./captures}:/data/captures
       - ${AGENTBOX_JOURNAL_HOST:-./journal}:/data/journal
+      - ${AGENTBOX_TOOLS_HOST:-./tools}:/data/tools
 
   # Long-lived scheduler: runs schedule.yaml's tasks on their cron schedules.
   # Started by `docker compose up`.
@@ -105,6 +107,7 @@ services:
       - agentbox_memory:/data/memory
       - ${AGENTBOX_CAPTURE_HOST:-./captures}:/data/captures
       - ${AGENTBOX_JOURNAL_HOST:-./journal}:/data/journal
+      - ${AGENTBOX_TOOLS_HOST:-./tools}:/data/tools
       # Mount the directory holding schedule.yaml (not the file) — see header note.
       - ${AGENTBOX_CONFIG_DIR:-./config}:/etc/agentbox:ro
 

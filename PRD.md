@@ -73,6 +73,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Calendar — read (`list_upcoming_events`, `events_on_day`, `search_events`) | ✅ | ICS feeds, read-only, recurrence-expanded, all-day aware; validated live. Configurable fetch timeout; in-run + cross-run caching (conditional GET / 304) so large feeds (tens of MB) aren't re-downloaded each run. The full feed is filtered to the query window in-process — only matched events enter the model context |
 | Long-lived / scheduled operation (`serve`, `run-task`) | ✅ | Cron scheduler runs YAML-configured tasks in `AGENTBOX_TIMEZONE`; on startup it runs every daily-or-more-frequent task once (catch-up); run path validated live via `run-task`, timed firing via robfig/cron |
 | Daily output journal | ✅ | Each scheduled task's result appended to `journal/YYYY-MM-DD.md`; the no-SMTP delivery channel |
+| Self-built tool library | 🟡 | Persistent `tools/` dir (on PATH) + injected `INDEX.md`; the general agent reuses past scripts and saves new ones, so it re-derives less and increasingly orchestrates. Excludes capture. Quality depends on the model following the save/reuse protocol |
 | Email — send | 🔵 | Gated by human confirmation; design pending (§8) |
 | Local LLM inference | 🤔 | Would remove the inference caveat; large effort, out of scope for now |
 
@@ -103,6 +104,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 |---|---|
 | `ANTHROPIC_API_KEY` | Required. Claude API key. |
 | `AGENTBOX_NAMESPACE` | Memory isolation per deployment (`personal`/`work`). |
+| `AGENTBOX_TOOLS_DIR` / `AGENTBOX_TOOLS_HOST` | Persistent tool library the agent builds and reuses (container path / host mount). |
 | `AGENTBOX_MEMORY_DIR` | Vector-store location. |
 | `AGENTBOX_OLLAMA_URL`, `AGENTBOX_EMBED_MODEL` | Local embedder. |
 | `AGENTBOX_WORKSPACE`, `MOUNTS` | Host directories the agent can access. |

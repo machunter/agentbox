@@ -150,6 +150,44 @@ type options struct {
 	capture bool // restricted profile for processing capture images
 }
 
+// ToolsDir resolves the persistent tool-library directory: AGENTBOX_TOOLS_DIR
+// if set, else ~/.agentbox/tools. Scripts the agent builds are saved here and
+// survive across runs.
+func ToolsDir() string {
+	if d := os.Getenv("AGENTBOX_TOOLS_DIR"); d != "" {
+		return d
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	return filepath.Join(home, ".agentbox", "tools")
+}
+
+// readToolIndex returns the tool library's INDEX.md contents, or "" if absent.
+func readToolIndex(dir string) string {
+	b, err := os.ReadFile(filepath.Join(dir, "INDEX.md"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// toolsSection is appended to the general agent's instruction: the tool-library
+// protocol plus the current index (clipped to bound context). It teaches the
+// agent to reuse and grow a persistent set of scripts so it re-derives less.
+func toolsSection(dir string) string {
+	idx := readToolIndex(dir)
+	if idx == "" {
+		idx = "(empty — no tools saved yet)"
+	}
+	return "\n\nYou have a persistent tool library at " + dir + " (also on your PATH), shared across runs. Build it up so you re-derive less over time:\n" +
+		"- Before writing code for a task, check the index below and prefer running an existing tool.\n" +
+		"- When you write something reusable, save it as a small, parameterized, executable script in that directory and add one line to " + dir + "/INDEX.md (name — purpose — usage).\n" +
+		"- Keep tools small, general, and well-named so future runs can reuse them.\n" +
+		"Tool library index:\n" + clip(idx)
+}
+
 // ForCapture builds a locked-down agent for the capture pipeline: only the
 // notes tools (add_todo/add_note/…), no run_bash, filesystem, email, calendar,
 // or memory. Capturing should only read an image and file its items; giving it
@@ -216,6 +254,12 @@ func New(ctx context.Context, out io.Writer, opts ...Option) (*Agent, error) {
 		if cal := initCalendarTools(out); cal != nil {
 			toolsets = append(toolsets, cal)
 		}
+
+		// Give the general agent its persistent, self-built tool library: append
+		// the protocol and the current index so it reuses past work and grows the
+		// library over time (the LLM increasingly orchestrates rather than
+		// re-derives). Capture stays locked down and does not get this.
+		instruction = systemPrompt + toolsSection(ToolsDir())
 	}
 
 	log.Debug("agent configured",

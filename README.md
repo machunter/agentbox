@@ -126,6 +126,19 @@ ollama pull nomic-embed-text   # agentbox finds Ollama at localhost:11434 by def
 Without Ollama, agentbox still runs — it just prints a `[memory: disabled …]`
 notice and skips long-term memory.
 
+### Self-built tool library
+
+Alongside semantic memory, the general agent has a **persistent, executable tool
+library** at `tools/` (mounted at `/data/tools`, on the container `PATH`). Its
+`INDEX.md` is injected into the agent's context each run. The agent is instructed
+to reuse an existing tool before writing new code, and to save reusable scripts
+back to the library — so over time it re-derives less and increasingly just
+orchestrates tools it already built. Python 3 is the one sanctioned scripting
+language (baked into the image), so the agent doesn't probe across languages. The
+capture agent is deliberately excluded (notes-only, no shell). How well the
+library grows depends on the model following the save/reuse protocol — stronger
+models curate it far more reliably than a small flash model.
+
 ## Run the stack (Docker Compose)
 
 This brings up agentbox plus a local Ollama, pulls the embedding model, and runs
@@ -257,6 +270,7 @@ the morning briefing, what it captured, and so on. Location is
 | `AGENTBOX_OLLAMA_URL` | Ollama's default | Embedder base URL (compose sets the service URL). |
 | `AGENTBOX_EMBED_MODEL` | `nomic-embed-text` | Local embedding model. |
 | `AGENTBOX_WORKSPACE` | `.` | Host dir mounted at `/workspace` (compose only). |
+| `AGENTBOX_TOOLS_HOST` | `./tools` | Host dir for the agent's persistent, self-built tool library (compose only). |
 | `AGENTBOX_IMAP_HOST` | — | IMAP server; set (with user/pass) to enable email tools. |
 | `AGENTBOX_IMAP_PORT` | `993` | IMAP port (implicit TLS). |
 | `AGENTBOX_IMAP_USER` | — | IMAP username. |
