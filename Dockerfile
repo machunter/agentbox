@@ -16,8 +16,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/agentbox .
 FROM debian:bookworm-slim
 # tzdata so AGENTBOX_TIMEZONE (e.g. America/Los_Angeles) resolves — without it
 # time.LoadLocation fails and the scheduler/journal silently fall back to UTC.
+# python3 is the agent's one sanctioned scripting language: its standard library
+# (urllib, json, subprocess, …) covers most scripting, so the agent uses it
+# deliberately instead of probing perl/python/openssl every run.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash coreutils ca-certificates tzdata \
+    && apt-get install -y --no-install-recommends bash coreutils ca-certificates tzdata python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Run as an unprivileged user — the agent executes model-directed commands, so
