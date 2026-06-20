@@ -70,9 +70,17 @@ const (
 		"If a connector you need isn't available (because it isn't configured), say so plainly and move on; do not improvise with bash or scripting languages. " +
 		"You have notes/todo tools (add_todo, list_todos, complete_todo, add_note, search_notes) for capturing and managing the user's todos and notes. " +
 		"Work in small, verifiable steps: inspect before you act, and check your work. " +
+		"Never install packages, invoke the agentbox binary itself, or make raw network/API calls (curl, openssl, sockets, scripting languages) — use only the tools provided. If you can't do something with those tools, say so and stop. " +
 		"You have a long-term memory of past sessions; relevant memories are provided automatically, " +
 		"and you can search them with the load_memory tool when useful. " +
 		"When the task is complete, stop calling tools and give a short, plain summary of what you did and what you found."
+
+	// capturePrompt is the system instruction for the locked-down capture agent
+	// (ForCapture): it has only the notes tools and must not attempt anything else.
+	capturePrompt = "You are agentbox's capture processor. You are given an image (often a photo of handwritten notes). " +
+		"Read all its text and file it: call add_todo for each actionable item and add_note for anything that's a note, idea, or reference. " +
+		"You have ONLY the notes tools — no shell, files, email, calendar, or network. Do not attempt anything else. " +
+		"If the image has no usable text, do nothing and say so. When done, give a one-line summary of what you filed."
 )
 
 // Agent holds the dependencies for a run.
@@ -134,10 +142,30 @@ func envInt(key string, def int) int {
 	return def
 }
 
+// Option configures how New builds the agent.
+type Option func(*options)
+
+type options struct {
+	capture bool // restricted profile for processing capture images
+}
+
+// ForCapture builds a locked-down agent for the capture pipeline: only the
+// notes tools (add_todo/add_note/…), no run_bash, filesystem, email, calendar,
+// or memory. Capturing should only read an image and file its items; giving it
+// a shell let weak models wander (run agentbox recursively, probe the network,
+// attempt package installs). This removes that whole surface.
+func ForCapture() Option { return func(o *options) { o.capture = true } }
+
 // New builds an Agent: an ADK agent (model chosen by AGENTBOX_MODEL — Claude or
 // Gemini) with the run_bash tool and, when a local embedder is reachable,
-// long-term memory. The model's API key is read from the environment.
-func New(ctx context.Context, out io.Writer) (*Agent, error) {
+// long-term memory. The model's API key is read from the environment. Pass
+// ForCapture to build the restricted, notes-only profile.
+func New(ctx context.Context, out io.Writer, opts ...Option) (*Agent, error) {
+	var o options
+	for _, fn := range opts {
+		fn(&o)
+	}
+
 	cfg := configFromEnv()
 	log := dbg.New("agent")
 
@@ -147,38 +175,52 @@ func New(ctx context.Context, out io.Writer) (*Agent, error) {
 		return nil, fmt.Errorf("init model: %w", err)
 	}
 
-	bash, err := tools.NewBash()
-	if err != nil {
-		return nil, fmt.Errorf("init run_bash tool: %w", err)
-	}
-	toolset := []tool.Tool{bash}
-
-	// Try to bring up local memory. It is an enhancement, not a hard
-	// dependency: if the embedder can't be reached, run without it.
-	mem := initMemory(ctx, cfg, out)
-	if mem != nil {
-		toolset = append(toolset, preloadmemorytool.New(), loadmemorytool.New())
-	}
-
-	// Connectors served by local MCP servers (agentbox launching itself in a
-	// subcommand). Best-effort: skip any that fail to set up.
+	var toolset []tool.Tool
 	var toolsets []tool.Toolset
-	if fs := initFileTools(out); fs != nil {
-		toolsets = append(toolsets, fs)
-	}
-	if nt := selfMCPToolset(out, "notes tools", "mcp-notes"); nt != nil {
-		toolsets = append(toolsets, nt)
-	}
-	if mail := initMailTools(out); mail != nil {
-		toolsets = append(toolsets, mail)
-	}
-	if cal := initCalendarTools(out); cal != nil {
-		toolsets = append(toolsets, cal)
+	instruction := systemPrompt
+	var mem *memory.Service
+
+	if o.capture {
+		// Notes-only: the one capability capture needs, nothing that lets the
+		// model act on the host or the network.
+		instruction = capturePrompt
+		if nt := selfMCPToolset(out, "notes tools", "mcp-notes"); nt != nil {
+			toolsets = append(toolsets, nt)
+		}
+	} else {
+		bash, err := tools.NewBash()
+		if err != nil {
+			return nil, fmt.Errorf("init run_bash tool: %w", err)
+		}
+		toolset = []tool.Tool{bash}
+
+		// Try to bring up local memory. It is an enhancement, not a hard
+		// dependency: if the embedder can't be reached, run without it.
+		mem = initMemory(ctx, cfg, out)
+		if mem != nil {
+			toolset = append(toolset, preloadmemorytool.New(), loadmemorytool.New())
+		}
+
+		// Connectors served by local MCP servers (agentbox launching itself in a
+		// subcommand). Best-effort: skip any that fail to set up.
+		if fs := initFileTools(out); fs != nil {
+			toolsets = append(toolsets, fs)
+		}
+		if nt := selfMCPToolset(out, "notes tools", "mcp-notes"); nt != nil {
+			toolsets = append(toolsets, nt)
+		}
+		if mail := initMailTools(out); mail != nil {
+			toolsets = append(toolsets, mail)
+		}
+		if cal := initCalendarTools(out); cal != nil {
+			toolsets = append(toolsets, cal)
+		}
 	}
 
 	log.Debug("agent configured",
 		"model", modelName,
 		"provider", llm.Provider(modelName),
+		"capture", o.capture,
 		"memory", mem != nil,
 		"toolsets", len(toolsets),
 		"namespace", cfg.namespace)
@@ -187,7 +229,7 @@ func New(ctx context.Context, out io.Writer) (*Agent, error) {
 		Name:        appName,
 		Description: "An autonomous agent that runs bash commands in a sandboxed container to accomplish a task.",
 		Model:       model,
-		Instruction: systemPrompt,
+		Instruction: instruction,
 		Tools:       toolset,
 		Toolsets:    toolsets,
 	})

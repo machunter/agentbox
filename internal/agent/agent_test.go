@@ -13,7 +13,7 @@ func TestInitMemoryDisabledWhenEmbedderUnreachable(t *testing.T) {
 	var out bytes.Buffer
 	cfg := config{
 		namespace:  "test",
-		memoryDir:  "", // in-memory chromem store; no disk
+		memoryDir:  "",                       // in-memory chromem store; no disk
 		ollamaURL:  "http://127.0.0.1:1/api", // nothing listens here -> connection refused
 		embedModel: "nomic-embed-text",
 	}
@@ -56,5 +56,16 @@ func TestConfigFromEnvOverrides(t *testing.T) {
 	}
 	if cfg.embedModel != "embeddinggemma" {
 		t.Errorf("embedModel: got %q", cfg.embedModel)
+	}
+}
+
+func TestForCaptureOption(t *testing.T) {
+	var o options
+	if o.capture {
+		t.Fatal("default options should not be capture mode")
+	}
+	ForCapture()(&o)
+	if !o.capture {
+		t.Error("ForCapture() should set capture mode")
 	}
 }

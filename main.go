@@ -264,7 +264,7 @@ func applyTimezone() {
 // only when it actually filed something (so the common no-op run is silent).
 func processCaptures(ctx context.Context, out io.Writer) (string, error) {
 	factory := func(ctx context.Context, out io.Writer) (capture.Agent, error) {
-		return agent.New(ctx, out)
+		return agent.New(ctx, out, agent.ForCapture()) // notes-only, no shell/network
 	}
 	n, err := capture.Process(ctx, captureDir(), out, factory)
 	if err != nil {
