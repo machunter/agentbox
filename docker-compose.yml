@@ -102,6 +102,7 @@ services:
     environment:
       <<: *agentbox-env
       AGENTBOX_SCHEDULE: /etc/agentbox/schedule.yaml
+      AGENTBOX_PROMPTS_DIR: /etc/agentbox/prompts   # optional per-task prompt overrides
     volumes:
       - ${AGENTBOX_WORKSPACE:-.}:/workspace
       - agentbox_memory:/data/memory

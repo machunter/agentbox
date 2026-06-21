@@ -254,10 +254,16 @@ tasks:
     schedule: "0 17 * * 5"
 ```
 
-Built-in names: `daily-briefing`, `weekly-review`, `process-captures`. Power
-users can override any task with a free-form `prompt:` (or add a new prompt-only
-task). On startup, tasks that run at least daily fire once immediately so a
-(re)start delivers today's briefing without waiting (weekly/monthly are skipped).
+Built-in names: `daily-briefing`, `weekly-review`, `process-captures`. On
+startup, tasks that run at least daily fire once immediately so a (re)start
+delivers today's briefing without waiting (weekly/monthly are skipped).
+
+To customize what a task does without editing prompts inline, drop a markdown
+file named after the task in **`config/prompts/`** (e.g.
+`config/prompts/daily-briefing.md`) — its contents override the built-in prompt,
+re-read each run so edits apply without a rebuild. A file for a brand-new task
+name works too (list the name + schedule, put the prompt in the file). An inline
+`prompt:` on a task still takes precedence over both.
 
 The schedule is mounted as the `config/` **directory** (not a single file): on
 macOS a single-file bind mount can trip a VirtioFS bug ("resource deadlock

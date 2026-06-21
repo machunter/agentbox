@@ -277,9 +277,13 @@ stays simple. Keep **one** `daily-briefing` (not separate morning/midday/evening
 tasks): it adapts to the time of day itself, and at startup every daily task runs
 once — three briefing tasks would all fire back to back.
 
-Advanced: to change what a task does, add your own `prompt:` (free-form
-instructions) — it overrides the built-in. You can also add brand-new prompt-only
-tasks the same way.
+Advanced — to change what a task does, two ways:
+- **Override file** (recommended): drop a markdown file named after the task in
+  `config/prompts/` (e.g. `config/prompts/daily-briefing.md`). Its contents
+  replace the built-in prompt, re-read each run so edits apply without a rebuild.
+  A file for a new task name works too — just list the name + schedule here.
+- **Inline `prompt:`** on the task — free-form instructions; takes precedence
+  over the built-in and the override file.
 
 Start the long-lived scheduler (and follow its output):
 

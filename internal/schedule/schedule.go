@@ -97,6 +97,11 @@ type Agent interface {
 // Factory builds a fresh Agent for one run, writing its output to out.
 type Factory func(ctx context.Context, out io.Writer) (Agent, error)
 
+// PromptFunc resolves the prompt for a built-in task by name, returning the
+// prompt and whether one is defined. It's a function (not a static map) so the
+// resolver can consult a live, user-editable override file each run.
+type PromptFunc func(name string) (string, bool)
+
 // CommandFunc is a built-in task body (e.g. processing the capture inbox). It
 // writes operational detail (full logs) to out, and returns a concise digest
 // line for the daily journal — or "" to record nothing, e.g. a no-op run that
@@ -113,16 +118,17 @@ type Scheduler struct {
 	out      io.Writer
 	factory  Factory
 	commands map[string]CommandFunc
-	prompts  map[string]string // built-in prompts keyed by task name
-	journal  *journal.Journal  // nil = no daily-output file
-	loc      *time.Location    // timezone cron schedules are interpreted in (nil = time.Local)
+	prompts  PromptFunc       // resolves a built-in prompt by task name (nil = none)
+	journal  *journal.Journal // nil = no daily-output file
+	loc      *time.Location   // timezone cron schedules are interpreted in (nil = time.Local)
 }
 
-// WithPrompts registers built-in prompts (keyed by task name) so a task can be
-// configured with just a name and schedule — its prompt lives in the binary,
-// not the user-facing schedule file. Returns the scheduler for chaining.
-func (s *Scheduler) WithPrompts(prompts map[string]string) *Scheduler {
-	s.prompts = prompts
+// WithPrompts registers a resolver for built-in prompts so a task can be
+// configured with just a name and schedule — its prompt comes from the binary
+// (or a user override file), not the user-facing schedule. Returns the scheduler
+// for chaining.
+func (s *Scheduler) WithPrompts(p PromptFunc) *Scheduler {
+	s.prompts = p
 	return s
 }
 
@@ -140,8 +146,10 @@ func (s *Scheduler) resolve(t Task) (cmd CommandFunc, prompt string, ok bool) {
 	if c, found := s.commands[t.Name]; found {
 		return c, "", true
 	}
-	if p, found := s.prompts[t.Name]; found {
-		return nil, p, true
+	if s.prompts != nil {
+		if p, found := s.prompts(t.Name); found && p != "" {
+			return nil, p, true
+		}
 	}
 	return nil, "", false
 }

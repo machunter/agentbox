@@ -1,5 +1,13 @@
 package main
 
+import (
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/burcsahinoglu/agentbox/internal/schedule"
+)
+
 // Built-in scheduled-task prompts. Keeping them in the binary (not in
 // schedule.yaml) means the schedule file is just task names + cron times —
 // approachable for a non-technical user — while the prompts stay version-
@@ -18,12 +26,30 @@ const dailyBriefingPrompt = "Give me a briefing tailored to the time of day. " +
 const weeklyReviewPrompt = "Review my calendar for the past week and draft a short summary of what I worked on, " +
 	"based on events and any notes in /workspace. End with a tight executive summary I can skim."
 
-// builtinPrompts maps built-in task names to their prompts, for the scheduler.
-// A schedule.yaml task with just one of these names (and a schedule) runs the
-// corresponding prompt.
+// builtinPrompts maps built-in task names to their default prompts.
 func builtinPrompts() map[string]string {
 	return map[string]string{
 		"daily-briefing": dailyBriefingPrompt,
 		"weekly-review":  weeklyReviewPrompt,
+	}
+}
+
+// promptResolver returns the prompt for a task name: a user override file
+// (AGENTBOX_PROMPTS_DIR/<name>.md) takes precedence over the binary default, and
+// is re-read each call so edits take effect on the next run without a rebuild.
+// An override file can also define a prompt for a brand-new task name.
+func promptResolver() schedule.PromptFunc {
+	defaults := builtinPrompts()
+	dir := os.Getenv("AGENTBOX_PROMPTS_DIR")
+	return func(name string) (string, bool) {
+		if dir != "" {
+			if b, err := os.ReadFile(filepath.Join(dir, name+".md")); err == nil {
+				if s := strings.TrimSpace(string(b)); s != "" {
+					return s, true
+				}
+			}
+		}
+		def, ok := defaults[name]
+		return def, ok
 	}
 }

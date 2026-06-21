@@ -283,7 +283,12 @@ func TestBuiltinPromptByName(t *testing.T) {
 	cfg := &Config{Tasks: []Task{{Name: "daily-briefing", Schedule: "@daily"}}}
 	var prompts []string
 	s := New(cfg, io.Discard, fakeFactory(&prompts), nil, nil, time.UTC).
-		WithPrompts(map[string]string{"daily-briefing": "BRIEF NOW"})
+		WithPrompts(func(name string) (string, bool) {
+			if name == "daily-briefing" {
+				return "BRIEF NOW", true
+			}
+			return "", false
+		})
 	if err := s.RunOnce(context.Background(), "daily-briefing"); err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +300,12 @@ func TestBuiltinPromptByName(t *testing.T) {
 	cfg2 := &Config{Tasks: []Task{{Name: "daily-briefing", Schedule: "@daily", Prompt: "CUSTOM"}}}
 	var p2 []string
 	s2 := New(cfg2, io.Discard, fakeFactory(&p2), nil, nil, time.UTC).
-		WithPrompts(map[string]string{"daily-briefing": "BRIEF NOW"})
+		WithPrompts(func(name string) (string, bool) {
+			if name == "daily-briefing" {
+				return "BRIEF NOW", true
+			}
+			return "", false
+		})
 	if err := s2.RunOnce(context.Background(), "daily-briefing"); err != nil {
 		t.Fatal(err)
 	}

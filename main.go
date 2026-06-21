@@ -214,7 +214,7 @@ func runScheduler(mode string, args []string) {
 	// file (the assistant's delivery channel without SMTP).
 	tz := agentTimezone()
 	jnl := journal.New(journalDir(), tz)
-	sched := schedule.New(cfg, os.Stdout, factory, commands, jnl, tz).WithPrompts(builtinPrompts())
+	sched := schedule.New(cfg, os.Stdout, factory, commands, jnl, tz).WithPrompts(promptResolver())
 
 	switch mode {
 	case "serve":

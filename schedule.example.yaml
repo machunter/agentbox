@@ -29,8 +29,15 @@ tasks:
   - name: weekly-review
     schedule: "0 17 * * 5"         # Fridays at 17:00
 
-# Advanced: to customize what a task does, add your own `prompt:` (free-form
-# instructions to the agent) — it overrides the built-in. For example:
+# Customizing what a task does — two ways, both optional:
+#
+# 1. Override a built-in prompt with an editable text file. Drop a markdown file
+#    named after the task in config/prompts/ — e.g. config/prompts/daily-briefing.md
+#    — and its contents replace the built-in prompt. Edits take effect on the next
+#    run (no rebuild). You can also add a file for a brand-new task name and just
+#    list that name + schedule here.
+#
+# 2. Or inline a `prompt:` right on the task (takes precedence over everything):
 #
 #   - name: my-custom-digest
 #     schedule: "0 7 * * *"
