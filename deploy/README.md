@@ -10,18 +10,19 @@ Copy these three files into a folder on the target machine (or copy the whole
 
 - `docker-compose.yml`
 - `.env.example`  → copy to `.env`
-- `schedule.example.yaml`  → copy to `schedule.yaml` (only if you want the scheduler)
+- `schedule.example.yaml`  → copy to `config/schedule.yaml` (only if you want the scheduler)
 
 ```sh
-cp .env.example .env        # then edit: set AGENTBOX_MODEL + your API key
-xattr -cr .                 # macOS only: strip extended attrs from downloaded files
-docker compose pull         # grab the agentbox + ollama images
+cp .env.example .env                              # then edit: set AGENTBOX_MODEL + your API key
+mkdir -p config                                   # only if running the scheduler:
+cp schedule.example.yaml config/schedule.yaml     #   the schedule is mounted as the config/ dir
+docker compose pull                               # grab the agentbox + ollama images
 ```
 
-> **macOS:** downloaded/copied files often carry extended attributes that break
-> Docker's file sharing (you'd see `resource deadlock avoided` when the scheduler
-> reads `schedule.yaml`). `xattr -cr .` clears them for the whole folder; for a
-> single file, `xattr -c schedule.yaml`.
+> **macOS:** the schedule is mounted as the **`config/` directory**, not a single
+> file, which sidesteps a Docker VirtioFS bug (`resource deadlock avoided`) caused
+> by macOS extended attributes. If you still hit a file-sharing error, switch
+> Docker Desktop → Settings → General → file sharing implementation to **gRPC FUSE**.
 
 ## Run
 
@@ -29,12 +30,16 @@ docker compose pull         # grab the agentbox + ollama images
 # One-shot task:
 docker compose run --rm agentbox "summarize the files in /workspace"
 
-# Long-lived scheduler (needs schedule.yaml):
-cp schedule.example.yaml schedule.yaml      # then edit
+# Long-lived scheduler (needs config/schedule.yaml — see Setup):
 docker compose up -d                        # starts ollama + the scheduler
 docker compose logs -f agentbox-scheduler   # watch it
 docker compose down                         # stop
 ```
+
+The schedule lists **built-in tasks** — you just choose when each runs (a name +
+a cron schedule, no prompts). Built-ins: `daily-briefing`, `weekly-review`,
+`process-captures`. To customize a task's prompt, drop a markdown file in
+`config/prompts/<task-name>.md` (re-read each run).
 
 > Use **`docker compose`** directly here — the `make compose-*` shortcuts from
 > the [full repo](https://github.com/machunter/agentbox) are not part of this
