@@ -118,6 +118,29 @@ func main() {
 		os.Exit(2)
 	}
 
+	// Mark a todo done from the CLI. The model matches the (possibly loose)
+	// description against the open todos and completes the right one.
+	//   agentbox done "reply to yuval about the AI role"
+	if len(os.Args) > 1 && os.Args[1] == "done" {
+		phrase := strings.TrimSpace(strings.Join(os.Args[2:], " "))
+		if phrase == "" {
+			fmt.Fprintln(os.Stderr, "usage: agentbox done \"<which todo>\"")
+			os.Exit(2)
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		ag, err := agent.New(ctx, os.Stdout, agent.ForNotes())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		if err := ag.Run(ctx, "Mark this todo as done: \""+phrase+"\""); err != nil {
+			fmt.Fprintln(os.Stderr, "\nerror:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// Process the capture inbox: read dropped photos and file their todos/notes.
 	if len(os.Args) > 1 && os.Args[1] == "process-captures" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

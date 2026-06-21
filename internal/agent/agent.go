@@ -82,6 +82,13 @@ const (
 		"Read all its text and file it: call add_todo for each actionable item and add_note for anything that's a note, idea, or reference. " +
 		"You have ONLY the notes tools — no shell, files, email, calendar, or network. Do not attempt anything else. " +
 		"If the image has no usable text, do nothing and say so. When done, give a one-line summary of what you filed."
+
+	// notesPrompt is the system instruction for the todo CLI (ForNotes): match
+	// the user's request to one open todo and complete it, conservatively.
+	notesPrompt = "You manage the user's todos with the notes tools only (no shell, files, email, calendar, or network). " +
+		"The user names a todo to mark done, possibly loosely or paraphrased. Call list_todos, then choose the SINGLE open todo that best matches their request and call complete_todo with text that uniquely identifies that todo. " +
+		"Be conservative: if nothing clearly matches, or two or more are plausible, complete NOTHING — instead list the close candidates and ask the user to be more specific. Never guess between ambiguous matches. " +
+		"End with a one-line confirmation of what you completed, or why you didn't."
 )
 
 // Agent holds the dependencies for a run.
@@ -148,7 +155,13 @@ type Option func(*options)
 
 type options struct {
 	capture bool // restricted profile for processing capture images
+	notes   bool // restricted profile for todo/notes CLI operations
 }
+
+// notesOnly reports whether a restricted, notes-tools-only agent was requested
+// (capture or the todo CLI): no shell, filesystem, email, calendar, memory, or
+// tool library.
+func (o options) notesOnly() bool { return o.capture || o.notes }
 
 // ToolsDir resolves the persistent tool-library directory: AGENTBOX_TOOLS_DIR
 // if set, else ~/.agentbox/tools. Scripts the agent builds are saved here and
@@ -195,10 +208,15 @@ func toolsSection(dir string) string {
 // attempt package installs). This removes that whole surface.
 func ForCapture() Option { return func(o *options) { o.capture = true } }
 
+// ForNotes builds the same locked-down, notes-only agent for todo/notes CLI
+// operations (e.g. `agentbox done`): the model matches the user's request
+// against the open todos and completes the right one, with no other surface.
+func ForNotes() Option { return func(o *options) { o.notes = true } }
+
 // New builds an Agent: an ADK agent (model chosen by AGENTBOX_MODEL — Claude or
 // Gemini) with the run_bash tool and, when a local embedder is reachable,
 // long-term memory. The model's API key is read from the environment. Pass
-// ForCapture to build the restricted, notes-only profile.
+// ForCapture or ForNotes to build a restricted, notes-only profile.
 func New(ctx context.Context, out io.Writer, opts ...Option) (*Agent, error) {
 	var o options
 	for _, fn := range opts {
@@ -219,10 +237,12 @@ func New(ctx context.Context, out io.Writer, opts ...Option) (*Agent, error) {
 	instruction := systemPrompt
 	var mem *memory.Service
 
-	if o.capture {
-		// Notes-only: the one capability capture needs, nothing that lets the
-		// model act on the host or the network.
+	if o.notesOnly() {
+		// Notes-only: nothing that lets the model act on the host or network.
 		instruction = capturePrompt
+		if o.notes {
+			instruction = notesPrompt
+		}
 		if nt := selfMCPToolset(out, "notes tools", "mcp-notes"); nt != nil {
 			toolsets = append(toolsets, nt)
 		}

@@ -99,3 +99,20 @@ func TestToolsSectionInjectsIndex(t *testing.T) {
 		t.Errorf("toolsSection did not inject the index:\n%s", s)
 	}
 }
+
+func TestForNotesOption(t *testing.T) {
+	var o options
+	if o.notesOnly() {
+		t.Fatal("default options should not be notes-only")
+	}
+	ForNotes()(&o)
+	if !o.notes || !o.notesOnly() {
+		t.Error("ForNotes() should set a notes-only profile")
+	}
+	// Capture is also notes-only, but distinct from the notes CLI profile.
+	var c options
+	ForCapture()(&c)
+	if !c.notesOnly() || c.notes {
+		t.Error("ForCapture() should be notes-only but not the notes-CLI profile")
+	}
+}

@@ -217,7 +217,14 @@ make compose-run TASK="add a todo to call the dentist and note that I want to ba
 make compose-run TASK="show my todos, then mark the dentist one done"
 ```
 
-Because they're plain files, you can also open and edit them in any editor.
+Because they're plain files, you can also open and edit them in any editor —
+flip `- [ ]` to `- [x]` in `todos.md` to mark something done. Or do it from the
+CLI with a loose description; the model matches it to the right open todo and
+refuses if it's ambiguous:
+
+```sh
+docker compose exec agentbox-scheduler agentbox done "the dentist call"
+```
 
 ## 9. Capture from a photo
 
@@ -417,6 +424,7 @@ container path.
 | `agentbox serve` | Run the scheduler daemon. |
 | `agentbox run-task <name>` | Run one scheduled task now. |
 | `agentbox process-captures` | Process the capture inbox. |
+| `agentbox done "<which todo>"` | Mark a todo done; the model matches your description to the right open todo. |
 | `agentbox mail-check` / `cal-check` | Test email / calendar setup (no API call). |
 
 ### Environment variables
