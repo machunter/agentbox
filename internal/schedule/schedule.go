@@ -21,13 +21,15 @@ import (
 // taskTimeout bounds a single scheduled run so a stuck task can't run forever.
 const taskTimeout = 15 * time.Minute
 
-// Task is one scheduled job. It runs exactly one of Prompt (an agent task) or
-// Command (a built-in, e.g. "process-captures").
+// Task is one scheduled job. How it runs is resolved in priority order: an
+// explicit Command, an explicit Prompt, or — when it has neither — a built-in
+// keyed by Name (a registered command, else a built-in prompt). The bare-name
+// form keeps schedule.yaml approachable: just a name and a cron schedule.
 type Task struct {
 	Name     string `yaml:"name"`
 	Schedule string `yaml:"schedule"` // cron spec ("0 8 * * *") or descriptor ("@daily")
-	Prompt   string `yaml:"prompt"`
-	Command  string `yaml:"command"`
+	Prompt   string `yaml:"prompt"`   // optional: overrides the built-in prompt
+	Command  string `yaml:"command"`  // optional: explicit built-in command
 }
 
 // Config is the parsed schedule file.
@@ -66,8 +68,8 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("duplicate task name %q", t.Name)
 		}
 		seen[t.Name] = true
-		if (t.Prompt == "") == (t.Command == "") {
-			return fmt.Errorf("task %q: set exactly one of prompt or command", t.Name)
+		if t.Prompt != "" && t.Command != "" {
+			return fmt.Errorf("task %q: set at most one of prompt or command (a bare name runs the matching built-in task)", t.Name)
 		}
 		if _, err := cron.ParseStandard(t.Schedule); err != nil {
 			return fmt.Errorf("task %q: invalid schedule %q: %w", t.Name, t.Schedule, err)
@@ -111,8 +113,37 @@ type Scheduler struct {
 	out      io.Writer
 	factory  Factory
 	commands map[string]CommandFunc
-	journal  *journal.Journal // nil = no daily-output file
-	loc      *time.Location   // timezone cron schedules are interpreted in (nil = time.Local)
+	prompts  map[string]string // built-in prompts keyed by task name
+	journal  *journal.Journal  // nil = no daily-output file
+	loc      *time.Location    // timezone cron schedules are interpreted in (nil = time.Local)
+}
+
+// WithPrompts registers built-in prompts (keyed by task name) so a task can be
+// configured with just a name and schedule — its prompt lives in the binary,
+// not the user-facing schedule file. Returns the scheduler for chaining.
+func (s *Scheduler) WithPrompts(prompts map[string]string) *Scheduler {
+	s.prompts = prompts
+	return s
+}
+
+// resolve determines how a task runs: a command, a prompt, or neither (ok=false).
+// Priority: explicit Command, explicit Prompt, then a built-in keyed by Name (a
+// registered command first, then a built-in prompt).
+func (s *Scheduler) resolve(t Task) (cmd CommandFunc, prompt string, ok bool) {
+	if t.Command != "" {
+		c, found := s.commands[t.Command]
+		return c, "", found // unknown explicit command → ok=false
+	}
+	if t.Prompt != "" {
+		return nil, t.Prompt, true
+	}
+	if c, found := s.commands[t.Name]; found {
+		return c, "", true
+	}
+	if p, found := s.prompts[t.Name]; found {
+		return nil, p, true
+	}
+	return nil, "", false
 }
 
 // New builds a Scheduler from a config, an output sink, an agent factory (for
@@ -141,6 +172,14 @@ func (s *Scheduler) Serve(ctx context.Context) error {
 	if loc == nil {
 		loc = time.Local
 	}
+	// Fail fast on a task that resolves to nothing (e.g. a misspelled built-in
+	// name), rather than letting it error only when its cron time arrives.
+	for _, t := range s.cfg.Tasks {
+		if _, _, ok := s.resolve(t); !ok {
+			return fmt.Errorf("task %q: not runnable — set a prompt, a valid command, or use a known built-in task name", t.Name)
+		}
+	}
+
 	c := cron.New(cron.WithLocation(loc), cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
 	for _, t := range s.cfg.Tasks {
 		if _, err := c.AddFunc(t.Schedule, func() { s.runTask(ctx, t) }); err != nil {
@@ -180,7 +219,11 @@ func (s *Scheduler) runDailyOnce(ctx context.Context, loc *time.Location) {
 		if !firesDaily(sched, from) {
 			continue
 		}
-		if t.Command != "" {
+		cmd, _, ok := s.resolve(t)
+		if !ok {
+			continue // not runnable; runTask logs it at its scheduled time
+		}
+		if cmd != nil {
 			cmds = append(cmds, t)
 		} else {
 			prompts = append(prompts, t)
@@ -237,12 +280,17 @@ func (s *Scheduler) runTask(ctx context.Context, t Task) {
 	runCtx, cancel := context.WithTimeout(ctx, taskTimeout)
 	defer cancel()
 
-	if t.Command != "" {
-		cmd, ok := s.commands[t.Command]
-		if !ok {
+	cmd, prompt, ok := s.resolve(t)
+	if !ok {
+		if t.Command != "" {
 			fmt.Fprintf(s.out, "[%s] task %q: unknown command %q\n", now(), t.Name, t.Command)
-			return
+		} else {
+			fmt.Fprintf(s.out, "[%s] task %q: not runnable — give it a prompt, a command, or use a known built-in task name\n", now(), t.Name)
 		}
+		return
+	}
+
+	if cmd != nil {
 		// Full logs go to s.out; the command returns a concise digest line (or
 		// "") so no-op runs don't clutter the daily journal.
 		digest, err := cmd(runCtx, s.out)
@@ -263,7 +311,7 @@ func (s *Scheduler) runTask(ctx context.Context, t Task) {
 		fmt.Fprintf(s.out, "[%s] task %q: setup failed: %v\n", now(), t.Name, err)
 		return
 	}
-	if err := ag.Run(runCtx, t.Prompt); err != nil {
+	if err := ag.Run(runCtx, prompt); err != nil {
 		fmt.Fprintf(s.out, "[%s] task %q: failed: %v\n", now(), t.Name, err)
 		s.record(t.Name, "failed: "+err.Error())
 		return

@@ -257,26 +257,29 @@ mkdir -p config
 cp schedule.example.yaml config/schedule.yaml   # then edit
 ```
 
-Each task has a `name`, a `schedule` (standard cron like `0 8 * * *`, or a
-descriptor like `@daily`), and either a `prompt` (an agent task) or a `command`
-(a built-in such as `process-captures`):
+These are **built-in tasks** — you only pick *when* each runs. Each task is just
+a `name` (which selects the behavior) and a `schedule` (standard cron like
+`0 8 * * *`, or a descriptor like `@daily`). You don't write any prompts:
 
 ```yaml
 tasks:
   - name: process-captures
     schedule: "50 7,12,17 * * *"   # just before each briefing
-    command: process-captures
   - name: daily-briefing
     schedule: "0 8,13,18 * * *"    # one task, adapts to time of day
-    prompt: >
-      Run `date` to see if it's morning/midday/evening, then summarize today's
-      calendar and recent email, file actionable emails as todos, and close any
-      todo I already handled (check the Sent folder). End with a short summary.
+  - name: weekly-review
+    schedule: "0 17 * * 5"
 ```
 
-Use one adaptive `daily-briefing` rather than separate morning/midday/evening
-tasks: at startup the scheduler runs every daily task once, so three briefing
-tasks would all fire back to back. One task that checks the time avoids that.
+Built-in names: `daily-briefing` (email + calendar + todos), `weekly-review`,
+and `process-captures`. The prompts live in the binary, so the schedule file
+stays simple. Keep **one** `daily-briefing` (not separate morning/midday/evening
+tasks): it adapts to the time of day itself, and at startup every daily task runs
+once — three briefing tasks would all fire back to back.
+
+Advanced: to change what a task does, add your own `prompt:` (free-form
+instructions) — it overrides the built-in. You can also add brand-new prompt-only
+tasks the same way.
 
 Start the long-lived scheduler (and follow its output):
 

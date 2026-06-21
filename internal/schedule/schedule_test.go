@@ -45,7 +45,7 @@ func TestValidate(t *testing.T) {
 		{"empty", Config{}, false},
 		{"no name", Config{Tasks: []Task{{Schedule: "@daily", Prompt: "p"}}}, false},
 		{"dup name", Config{Tasks: []Task{{Name: "a", Schedule: "@daily", Prompt: "p"}, {Name: "a", Schedule: "@daily", Prompt: "q"}}}, false},
-		{"neither prompt nor command", Config{Tasks: []Task{{Name: "a", Schedule: "@daily"}}}, false},
+		{"bare name (built-in by name) is valid", Config{Tasks: []Task{{Name: "daily-briefing", Schedule: "@daily"}}}, true},
 		{"both prompt and command", Config{Tasks: []Task{{Name: "a", Schedule: "@daily", Prompt: "p", Command: "c"}}}, false},
 		{"bad cron", Config{Tasks: []Task{{Name: "a", Schedule: "not a cron", Prompt: "p"}}}, false},
 	}
@@ -275,5 +275,41 @@ func TestServeUsesConfiguredTimezone(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "America/Los_Angeles") {
 		t.Errorf("startup line should report the configured timezone:\n%s", out.String())
+	}
+}
+
+func TestBuiltinPromptByName(t *testing.T) {
+	// A bare-name task (no prompt/command) runs the registered built-in prompt.
+	cfg := &Config{Tasks: []Task{{Name: "daily-briefing", Schedule: "@daily"}}}
+	var prompts []string
+	s := New(cfg, io.Discard, fakeFactory(&prompts), nil, nil, time.UTC).
+		WithPrompts(map[string]string{"daily-briefing": "BRIEF NOW"})
+	if err := s.RunOnce(context.Background(), "daily-briefing"); err != nil {
+		t.Fatal(err)
+	}
+	if len(prompts) != 1 || prompts[0] != "BRIEF NOW" {
+		t.Fatalf("bare-name task didn't run the built-in prompt: %v", prompts)
+	}
+
+	// An explicit prompt overrides the built-in.
+	cfg2 := &Config{Tasks: []Task{{Name: "daily-briefing", Schedule: "@daily", Prompt: "CUSTOM"}}}
+	var p2 []string
+	s2 := New(cfg2, io.Discard, fakeFactory(&p2), nil, nil, time.UTC).
+		WithPrompts(map[string]string{"daily-briefing": "BRIEF NOW"})
+	if err := s2.RunOnce(context.Background(), "daily-briefing"); err != nil {
+		t.Fatal(err)
+	}
+	if len(p2) != 1 || p2[0] != "CUSTOM" {
+		t.Fatalf("explicit prompt should override built-in: %v", p2)
+	}
+}
+
+func TestServeRejectsUnrunnableTask(t *testing.T) {
+	// A bare name that matches no built-in command or prompt is rejected up front.
+	cfg := &Config{Tasks: []Task{{Name: "mystery", Schedule: "@daily"}}}
+	var prompts []string
+	s := New(cfg, io.Discard, fakeFactory(&prompts), nil, nil, time.UTC)
+	if err := s.Serve(context.Background()); err == nil {
+		t.Error("Serve should reject a task that resolves to nothing")
 	}
 }

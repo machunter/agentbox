@@ -235,19 +235,37 @@ file:
 
 ```sh
 mkdir -p config
-cp schedule.example.yaml config/schedule.yaml   # then edit names, cron specs, prompts
+cp schedule.example.yaml config/schedule.yaml   # then edit the schedules
 docker compose up -d                            # starts Ollama + the scheduler
 make compose-logs                               # follow the scheduler's output
 ```
+
+The schedule lists **built-in tasks** — you only choose *when* each runs, not
+*what* it does. The prompts live in the binary, so the file is just names + cron
+times (no prompt-writing required):
+
+```yaml
+tasks:
+  - name: daily-briefing      # built-in: email + calendar + todos, adapts to time of day
+    schedule: "0 8,13,18 * * *"
+  - name: process-captures    # built-in: file todos/notes from dropped photos
+    schedule: "50 7,12,17 * * *"
+  - name: weekly-review
+    schedule: "0 17 * * 5"
+```
+
+Built-in names: `daily-briefing`, `weekly-review`, `process-captures`. Power
+users can override any task with a free-form `prompt:` (or add a new prompt-only
+task). On startup, tasks that run at least daily fire once immediately so a
+(re)start delivers today's briefing without waiting (weekly/monthly are skipped).
 
 The schedule is mounted as the `config/` **directory** (not a single file): on
 macOS a single-file bind mount can trip a VirtioFS bug ("resource deadlock
 avoided") from macOS extended attributes; a directory mount avoids it.
 
-Each task is `{name, schedule, prompt}`; `schedule` is standard 5-field cron
-(`0 8 * * *`) or a descriptor (`@daily`). Each run is an independent agent run
-that shares the persistent memory store. Set `AGENTBOX_TIMEZONE` so schedules
-fire in your local time.
+`schedule` is standard 5-field cron (`0 8 * * *`) or a descriptor (`@daily`).
+Each run is an independent agent run that shares the persistent memory store. Set
+`AGENTBOX_TIMEZONE` so schedules fire in your local time.
 
 Test a task without waiting for its time:
 

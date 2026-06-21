@@ -1,65 +1,39 @@
-# Copy to config/schedule.yaml (gitignored) and edit. The scheduler
-# (`agentbox serve`, or `docker compose up`) runs each task on its cron
-# schedule. Each run is an independent agent run that shares the persistent
-# memory store.
+# Copy to config/schedule.yaml and edit. The scheduler (`agentbox serve`, or
+# `docker compose up`) runs each task on its cron schedule.
 #
-# schedule: standard 5-field cron ("min hour dom mon dow") or a descriptor
-#           (@hourly, @daily, @weekly, @monthly). Interpreted in the container's
-#           timezone — set AGENTBOX_TIMEZONE to control it.
-# prompt:   the task given to the agent, same as a one-shot task. Its closing
-#           summary is appended to the daily journal (the digest you read).
-# command:  a built-in instead of a prompt (currently only process-captures).
+# These are built-in tasks — you only choose WHEN they run. Each needs just a
+# name (which selects the built-in behavior) and a schedule. You normally don't
+# write any prompts here.
 #
-# Startup catch-up: on (re)start, the scheduler runs every task that fires at
-# least daily once immediately (commands before prompts), so you get today's
-# briefing and any waiting captures right away. Weekly/monthly tasks are not.
-# That's why there is ONE adaptive daily-briefing (not separate morning/midday/
-# evening tasks) — at startup it would otherwise run all three back to back.
+# schedule: standard 5-field cron "min hour dom mon dow" (e.g. "0 8 * * *"), or
+#           a descriptor (@hourly, @daily, @weekly). Interpreted in the
+#           container's timezone — set AGENTBOX_TIMEZONE.
+#
+# Built-in task names:
+#   daily-briefing    — reads email + calendar, files todos, writes a summary
+#                       (adapts to morning/midday/evening by the time it runs)
+#   weekly-review     — summarizes the past week
+#   process-captures  — files todos/notes from photos dropped in the capture inbox
+#
+# On (re)start, tasks that run at least daily fire once immediately, so you get
+# today's briefing right away. Keep ONE daily-briefing (not three) — it adapts
+# to the time of day itself.
 
 tasks:
-  # Read dropped photos and file their todos/notes. Listed first so the startup
-  # catch-up captures before the briefing reads todos. Runs ~10 min before each
-  # briefing time so the briefing reflects freshly-filed items.
   - name: process-captures
-    schedule: "50 7,12,17 * * *"   # 07:50, 12:50, 17:50
-    command: process-captures
+    schedule: "50 7,12,17 * * *"   # 07:50, 12:50, 17:50 (just before each briefing)
 
-  # One briefing that adapts to the time of day. Fires morning/midday/evening;
-  # at startup it runs once, with framing chosen from the current time.
   - name: daily-briefing
     schedule: "0 8,13,18 * * *"    # 08:00, 13:00, 18:00
-    prompt: >
-      Give me a briefing tailored to the time of day. First run `date` to get
-      the current local time and decide whether this is the morning (start of
-      day), midday, or evening (end of day) briefing.
-
-      Then:
-      (1) List today's calendar events. For the evening briefing, also preview
-      tomorrow.
-      (2) Call list_new_emails to get mail that has arrived since the last
-      briefing (it only returns messages not seen before, so you won't reprocess
-      old ones), and pick out anything that needs my attention or a reply. For
-      each email that needs an action from me, file a todo with add_todo — but
-      first call list_todos and skip anything already captured, and don't create
-      todos for newsletters, receipts, or FYI-only mail.
-      (3) Review my open todos with list_todos. For any todo about replying to or
-      emailing someone, check whether I already handled it by searching my Sent
-      mail: call search_emails with mailbox "Sent" (that name resolves to the
-      real Sent folder automatically — do NOT call list_mailboxes) for that
-      person/subject. If I already sent the reply, mark the todo done with
-      complete_todo.
-
-      Only read the inbox and the Sent folder. Do not list, open, or search any
-      other folders or labels.
-
-      Finish with a tight executive summary appropriate to the time of day (a few
-      bullets, no preamble): what matters most now, my meetings, anything urgent
-      in email, todos you created, and todos you closed. This summary is the only
-      thing I'll read, so make it self-contained.
 
   - name: weekly-review
-    schedule: "0 17 * * 5"         # Fridays at 17:00 (not run at startup)
-    prompt: >
-      Review my calendar for the past week and draft a short summary of what
-      I worked on, based on events and any notes in /workspace. End with a tight
-      executive summary I can skim.
+    schedule: "0 17 * * 5"         # Fridays at 17:00
+
+# Advanced: to customize what a task does, add your own `prompt:` (free-form
+# instructions to the agent) — it overrides the built-in. For example:
+#
+#   - name: my-custom-digest
+#     schedule: "0 7 * * *"
+#     prompt: >
+#       List my unread emails from the last day and today's calendar, and flag
+#       anything urgent.
