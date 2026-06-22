@@ -2,6 +2,8 @@ package mcpnotes
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -68,28 +70,31 @@ func TestAddTodo(t *testing.T) {
 	}
 }
 
-func TestCompleteTodo(t *testing.T) {
+func TestRemoveTodo(t *testing.T) {
 	content := "- [ ] call dentist\n- [ ] buy oat milk\n"
 
-	newContent, done, err := completeTodo(content, "milk")
+	newContent, removed, text, err := removeTodo(content, "milk")
 	if err != nil {
-		t.Fatalf("completeTodo: %v", err)
+		t.Fatalf("removeTodo: %v", err)
 	}
-	if done != "buy oat milk" {
-		t.Errorf("completed text = %q", done)
+	if text != "buy oat milk" {
+		t.Errorf("completed text = %q", text)
 	}
-	if !strings.Contains(newContent, "- [x] buy oat milk") {
-		t.Errorf("todo not marked done: %q", newContent)
+	if strings.Contains(newContent, "oat milk") {
+		t.Errorf("todo not removed from todos.md: %q", newContent)
 	}
 	if !strings.Contains(newContent, "- [ ] call dentist") {
 		t.Errorf("unrelated todo changed: %q", newContent)
 	}
+	if !strings.Contains(removed, "buy oat milk") {
+		t.Errorf("removed line = %q", removed)
+	}
 
-	if _, _, err := completeTodo(content, "nonexistent"); err == nil {
+	if _, _, _, err := removeTodo(content, "nonexistent"); err == nil {
 		t.Error("completing a missing todo should error")
 	}
-	// Already-done items shouldn't match.
-	if _, _, err := completeTodo("- [x] done thing\n", "done thing"); err == nil {
+	// Already-done items shouldn't match (only open "- [ ] " lines do).
+	if _, _, _, err := removeTodo("- [x] done thing\n", "done thing"); err == nil {
 		t.Error("should not 'complete' an already-done todo")
 	}
 }
@@ -130,12 +135,25 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Fatalf("list missing todos: %q", list)
 	}
 
-	if _, err := s.CompleteTodo("dentist"); err != nil {
+	if _, err := s.CompleteTodo("dentist", "2026-06-14"); err != nil {
 		t.Fatal(err)
 	}
 	open, _ := s.ListTodos(false)
 	if strings.Contains(open, "call dentist") {
 		t.Errorf("completed todo still listed as open: %q", open)
+	}
+	// The completed todo moved out of todos.md into a dated done file.
+	if data, _ := os.ReadFile(filepath.Join(dir, "todos.md")); strings.Contains(string(data), "dentist") {
+		t.Errorf("completed todo should be gone from todos.md: %q", data)
+	}
+	doneData, err := os.ReadFile(filepath.Join(dir, "done", "2026-06-14.md"))
+	if err != nil || !strings.Contains(string(doneData), "call dentist") {
+		t.Errorf("completed todo not in done/2026-06-14.md (err=%v): %q", err, doneData)
+	}
+	// include_done surfaces it again.
+	withDone, _ := s.ListTodos(true)
+	if !strings.Contains(withDone, "call dentist") {
+		t.Errorf("ListTodos(true) should include recent done: %q", withDone)
 	}
 
 	if err := s.AddNote("idea: process captures from email", "2026-06-14 09:00"); err != nil {

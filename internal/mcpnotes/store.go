@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -18,6 +19,7 @@ import (
 const (
 	todosFile = "todos.md"
 	notesFile = "inbox.md"
+	doneDir   = "done" // completed todos move here, one file per day (done/<date>.md)
 )
 
 // Store reads and writes the markdown todo/note files under a directory. The
@@ -61,24 +63,44 @@ func (s *Store) ListTodos(includeDone bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return formatTodos(parseTodos(content), includeDone), nil
+	out := formatTodos(parseTodos(content)) // open todos live in todos.md
+	if includeDone {
+		// Completed todos were moved to dated done/ files; surface recent ones.
+		if done := s.recentDone(7); done != "" {
+			out += "\n\nCompleted (recent):\n" + done
+		}
+	}
+	return out, nil
 }
 
-func (s *Store) CompleteTodo(match string) (string, error) {
+// CompleteTodo removes the first open todo matching `match` from todos.md and
+// appends it (marked done) to a dated file done/<doneDate>.md, so the active
+// list stays short and readable. Returns the completed todo's text.
+func (s *Store) CompleteTodo(match, doneDate string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	content, err := s.read(todosFile)
 	if err != nil {
 		return "", err
 	}
-	newContent, completed, err := completeTodo(content, match)
+	newContent, removed, text, err := removeTodo(content, match)
 	if err != nil {
 		return "", err
 	}
 	if err := s.write(todosFile, newContent); err != nil {
 		return "", err
 	}
-	return completed, nil
+	// Append to the daily done file (mark it done, keep the original text/comment).
+	doneName := filepath.Join(doneDir, doneDate+".md")
+	prev, err := s.read(doneName)
+	if err != nil {
+		return "", err
+	}
+	doneLine := strings.Replace(removed, "- [ ] ", "- [x] ", 1)
+	if err := s.write(doneName, appendLine(prev, doneLine)); err != nil {
+		return "", err
+	}
+	return text, nil
 }
 
 func (s *Store) AddNote(text, timestamp string) error {
@@ -124,13 +146,34 @@ func (s *Store) read(name string) (string, error) {
 }
 
 func (s *Store) write(name, content string) error {
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+	full := filepath.Join(s.dir, name)
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return fmt.Errorf("create notes dir: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(s.dir, name), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", name, err)
 	}
 	return nil
+}
+
+// recentDone returns the contents of the most recent done files (up to limit),
+// oldest first, for the optional "completed" section of ListTodos.
+func (s *Store) recentDone(limit int) string {
+	matches, _ := filepath.Glob(filepath.Join(s.dir, doneDir, "*.md"))
+	sort.Strings(matches) // filenames are dates, so this is chronological
+	if len(matches) > limit {
+		matches = matches[len(matches)-limit:]
+	}
+	var b strings.Builder
+	for _, m := range matches {
+		data, err := os.ReadFile(m)
+		if err != nil {
+			continue
+		}
+		b.WriteString(strings.TrimRight(string(data), "\n"))
+		b.WriteByte('\n')
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // --- pure helpers (independently testable) ---
@@ -164,11 +207,12 @@ func addNote(content, text, timestamp string) string {
 	return appendLine(content, fmt.Sprintf("- %s  %s", timestamp, text))
 }
 
-// completeTodo flips the first open todo whose text contains match (case
-// insensitive) to done, returning the updated content and the completed text.
-func completeTodo(content, match string) (string, string, error) {
+// removeTodo removes the first open todo whose text contains match (case
+// insensitive), returning the new todos.md content, the removed line verbatim,
+// and the todo's text — or an error if none match.
+func removeTodo(content, match string) (newContent, removed, text string, err error) {
 	if strings.TrimSpace(match) == "" {
-		return "", "", fmt.Errorf("match is empty")
+		return "", "", "", fmt.Errorf("match is empty")
 	}
 	needle := strings.ToLower(match)
 	lines := strings.Split(content, "\n")
@@ -177,35 +221,32 @@ func completeTodo(content, match string) (string, string, error) {
 		if !strings.HasPrefix(t, "- [ ] ") {
 			continue
 		}
-		text := strings.TrimSpace(t[6:])
-		if strings.Contains(strings.ToLower(text), needle) {
-			lines[i] = strings.Replace(line, "- [ ] ", "- [x] ", 1)
-			return strings.Join(lines, "\n"), text, nil
+		txt := strings.TrimSpace(t[6:])
+		if strings.Contains(strings.ToLower(txt), needle) {
+			removed = line
+			lines = append(lines[:i], lines[i+1:]...)
+			nc := strings.TrimRight(strings.Join(lines, "\n"), "\n")
+			if nc != "" {
+				nc += "\n"
+			}
+			return nc, removed, txt, nil
 		}
 	}
-	return "", "", fmt.Errorf("no open todo matching %q", match)
+	return "", "", "", fmt.Errorf("no open todo matching %q", match)
 }
 
-func formatTodos(todos []Todo, includeDone bool) string {
-	var open, done []string
+// formatTodos lists the open todos (completed ones live in dated done/ files).
+func formatTodos(todos []Todo) string {
+	var open []string
 	for _, t := range todos {
-		if t.Done {
-			done = append(done, "- [x] "+t.Text)
-		} else {
+		if !t.Done {
 			open = append(open, "- [ ] "+t.Text)
 		}
 	}
-	var b strings.Builder
 	if len(open) == 0 {
-		b.WriteString("(no open todos)")
-	} else {
-		b.WriteString(strings.Join(open, "\n"))
+		return "(no open todos)"
 	}
-	if includeDone && len(done) > 0 {
-		b.WriteString("\n\nCompleted:\n")
-		b.WriteString(strings.Join(done, "\n"))
-	}
-	return b.String()
+	return strings.Join(open, "\n")
 }
 
 func searchLines(content, query string) []string {

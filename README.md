@@ -193,10 +193,11 @@ make compose-run TASK="add a todo to call the dentist, and note that I want to b
 make compose-run TASK="what's on my todo list? mark the dentist one done."
 ```
 
-Because they're plain files, you can also edit them directly — flip `- [ ]` to
-`- [x]` in `todos.md` to mark something done — and a synced folder
-(iCloud/Dropbox) mounted as the notes dir lets you capture from your phone.
-Timestamps follow `AGENTBOX_TIMEZONE`.
+Completing a todo (via `done`, the agent, or the menu) **moves** it out of
+`todos.md` into a dated `done/<date>.md` file, so the active list stays short and
+readable while finished work is archived by day. They're plain files, so you can
+also edit them directly, and a synced folder (iCloud/Dropbox) mounted as the
+notes dir lets you capture from your phone. Timestamps follow `AGENTBOX_TIMEZONE`.
 
 From the CLI: `agentbox todo` adds one (deterministic, no API key needed),
 `agentbox todos` lists open ones, and `agentbox done` completes one — the model

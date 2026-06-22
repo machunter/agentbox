@@ -228,7 +228,10 @@ docker compose exec agentbox-scheduler agentbox done "the dentist call"   # comp
 
 `todo`/`todos` just touch the store (instant, deterministic); `done` uses the
 model to match your description to the right open todo and refuses if it's
-ambiguous.
+ambiguous. Completing a todo **moves** it out of `todos.md` into a dated
+`done/<date>.md` file, so the active list stays short while finished work is
+archived by day (`agentbox todos` shows open items; the agent can still surface
+recent done via `list_todos` with `include_done`).
 
 Or run **`./agentbox.sh`** from the folder with `docker-compose.yml` for a menu
 that wraps all of this (add/show/complete todos, run a briefing, process photos,

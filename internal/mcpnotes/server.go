@@ -78,9 +78,9 @@ func (s *server) registerTools(srv *mcp.Server) {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "complete_todo",
-		Description: "Mark an open todo as done by matching its text.",
+		Description: "Mark an open todo done by matching its text. It's moved out of the active list into a dated done file.",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in completeTodoInput) (*mcp.CallToolResult, any, error) {
-		done, err := s.store.CompleteTodo(in.Match)
+		done, err := s.store.CompleteTodo(in.Match, today())
 		if err != nil {
 			return errResult(err), nil, nil
 		}
