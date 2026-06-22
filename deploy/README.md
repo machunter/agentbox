@@ -37,6 +37,25 @@ docker compose logs -f agentbox-scheduler   # watch it
 docker compose down                         # stop
 ```
 
+## Quick commands (todos, etc.)
+
+No Makefile needed — run agentbox subcommands with plain `docker compose`. If the
+scheduler is up, exec into it; otherwise use a one-off container:
+
+```sh
+# scheduler running (docker compose up -d):
+docker compose exec agentbox-scheduler agentbox todo "call the dentist"   # add a todo (no API key needed)
+docker compose exec agentbox-scheduler agentbox done "the dentist call"   # mark one done (model matches it)
+
+# not running a scheduler:
+docker compose run --rm agentbox todo "call the dentist"
+```
+
+These write to the same notes store the briefings use. Frequent user? Alias it:
+`alias abx='docker compose exec agentbox-scheduler agentbox'`, then `abx todo "…"`.
+
+## Tasks & prompts
+
 The schedule lists **built-in tasks** — you just choose when each runs (a name +
 a cron schedule, no prompts). Built-ins: `daily-briefing`, `weekly-review`,
 `process-captures`.
