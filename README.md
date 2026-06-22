@@ -198,11 +198,12 @@ Because they're plain files, you can also edit them directly — flip `- [ ]` to
 (iCloud/Dropbox) mounted as the notes dir lets you capture from your phone.
 Timestamps follow `AGENTBOX_TIMEZONE`.
 
-To mark a todo done from the CLI without opening the file, use `agentbox done`
-with a loose description — the model matches it to the right open todo (and
-refuses if it's ambiguous):
+From the CLI: `agentbox todo` adds one (deterministic, no API key needed), and
+`agentbox done` completes one — the model matches your loose description to the
+right open todo and refuses if it's ambiguous:
 
 ```sh
+docker compose exec agentbox-scheduler agentbox todo "call the dentist"
 docker compose exec agentbox-scheduler agentbox done "reply to yuval about the AI role"
 ```
 

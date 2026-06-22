@@ -91,6 +91,24 @@ func main() {
 		return
 	}
 
+	// Add a todo from the CLI. Deterministic — appends to the notes store, no
+	// model or API key needed (unlike `done`, which matches with the LLM).
+	//   agentbox todo "call the dentist"
+	if len(os.Args) > 1 && os.Args[1] == "todo" {
+		text := strings.TrimSpace(strings.Join(os.Args[2:], " "))
+		if text == "" {
+			fmt.Fprintln(os.Stderr, "usage: agentbox todo \"<text>\"")
+			os.Exit(2)
+		}
+		store := mcpnotes.NewStore(mcpnotes.DefaultDir())
+		if err := store.AddTodo(text, time.Now().Format("2006-01-02")); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		fmt.Println("added todo:", text)
+		return
+	}
+
 	// Internal subcommand: run as the read-only calendar (ICS) MCP server over
 	// stdio. Reads ICS feed URLs from the environment; no API key needed.
 	if len(os.Args) > 1 && os.Args[1] == "mcp-cal" {
