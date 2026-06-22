@@ -42,10 +42,11 @@ a cron schedule, no prompts). Built-ins: `daily-briefing`, `weekly-review`,
 `process-captures`.
 
 To customize what a task says, edit its prompt file in **`config/prompts/`** —
-this bundle ships the current ones (`daily-briefing.md`, `weekly-review.md`)
-ready to edit. Changes apply on the next run (no rebuild); these files override
-the prompts built into the image. You can also add `config/prompts/<name>.md`
-for a brand-new task name.
+this bundle ships the current ones (`daily-briefing.md`, `weekly-review.md`, and
+`process-captures.md`, which is the image-extraction instruction) ready to edit.
+Changes apply on the next run (no rebuild); these files override the prompts
+built into the image. You can also add `config/prompts/<name>.md` for a
+brand-new task name.
 
 > Use **`docker compose`** directly here — the `make compose-*` shortcuts from
 > the [full repo](https://github.com/machunter/agentbox) are not part of this

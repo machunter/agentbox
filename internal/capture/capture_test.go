@@ -45,7 +45,7 @@ func TestProcessDeletesAndSkips(t *testing.T) {
 	write(t, filepath.Join(dir, "ignore.txt"), "not an image")
 
 	calls := 0
-	n, err := Process(context.Background(), dir, io.Discard, fakeFactory(&calls, nil))
+	n, err := Process(context.Background(), dir, "", io.Discard, fakeFactory(&calls, nil))
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestProcessFailureMovesToFailed(t *testing.T) {
 	write(t, filepath.Join(dir, "bad.jpg"), "x")
 
 	calls := 0
-	n, err := Process(context.Background(), dir, io.Discard, fakeFactory(&calls, errors.New("vision failed")))
+	n, err := Process(context.Background(), dir, "", io.Discard, fakeFactory(&calls, errors.New("vision failed")))
 	if err != nil {
 		t.Fatalf("Process should not return a top-level error: %v", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/burcsahinoglu/agentbox/internal/capture"
 	"github.com/burcsahinoglu/agentbox/internal/schedule"
 )
 
@@ -34,22 +35,43 @@ func builtinPrompts() map[string]string {
 	}
 }
 
-// promptResolver returns the prompt for a task name: a user override file
-// (AGENTBOX_PROMPTS_DIR/<name>.md) takes precedence over the binary default, and
-// is re-read each call so edits take effect on the next run without a rebuild.
-// An override file can also define a prompt for a brand-new task name.
+// readPromptOverride returns the contents of AGENTBOX_PROMPTS_DIR/<name>.md when
+// present and non-empty. Re-read on each call, so edits take effect on the next
+// run without a rebuild.
+func readPromptOverride(name string) (string, bool) {
+	dir := os.Getenv("AGENTBOX_PROMPTS_DIR")
+	if dir == "" {
+		return "", false
+	}
+	b, err := os.ReadFile(filepath.Join(dir, name+".md"))
+	if err != nil {
+		return "", false
+	}
+	if s := strings.TrimSpace(string(b)); s != "" {
+		return s, true
+	}
+	return "", false
+}
+
+// promptResolver returns the prompt for a task name: a user override file takes
+// precedence over the binary default. An override file can also define a prompt
+// for a brand-new task name.
 func promptResolver() schedule.PromptFunc {
 	defaults := builtinPrompts()
-	dir := os.Getenv("AGENTBOX_PROMPTS_DIR")
 	return func(name string) (string, bool) {
-		if dir != "" {
-			if b, err := os.ReadFile(filepath.Join(dir, name+".md")); err == nil {
-				if s := strings.TrimSpace(string(b)); s != "" {
-					return s, true
-				}
-			}
+		if s, ok := readPromptOverride(name); ok {
+			return s, true
 		}
 		def, ok := defaults[name]
 		return def, ok
 	}
+}
+
+// captureExtractPrompt is the image-extraction instruction for process-captures,
+// overridable via config/prompts/process-captures.md like the prompt tasks.
+func captureExtractPrompt() string {
+	if s, ok := readPromptOverride("process-captures"); ok {
+		return s
+	}
+	return capture.DefaultExtractPrompt
 }

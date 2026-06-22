@@ -305,7 +305,7 @@ func processCaptures(ctx context.Context, out io.Writer) (string, error) {
 	factory := func(ctx context.Context, out io.Writer) (capture.Agent, error) {
 		return agent.New(ctx, out, agent.ForCapture()) // notes-only, no shell/network
 	}
-	n, err := capture.Process(ctx, captureDir(), out, factory)
+	n, err := capture.Process(ctx, captureDir(), captureExtractPrompt(), out, factory)
 	if err != nil {
 		return "", err
 	}

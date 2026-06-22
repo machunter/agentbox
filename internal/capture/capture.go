@@ -16,7 +16,10 @@ import (
 	"github.com/burcsahinoglu/agentbox/internal/dbg"
 )
 
-const extractPrompt = "This is a photo the user took to quickly capture todos and notes. " +
+// DefaultExtractPrompt is the instruction sent with each capture image. It's
+// the default; callers can override it (e.g. from config/prompts/process-captures.md)
+// by passing a non-empty prompt to Process.
+const DefaultExtractPrompt = "This is a photo the user took to quickly capture todos and notes. " +
 	"Read all the text in the image (it may be handwritten). For each actionable item, call add_todo. " +
 	"For anything that's a note, idea, or reference rather than a task, call add_note. " +
 	"Keep each item concise and faithful to what's written. If the image has no usable text, do nothing and say so."
@@ -49,9 +52,13 @@ type Agent interface {
 type Factory func(ctx context.Context, out io.Writer) (Agent, error)
 
 // Process handles every supported image directly under dir (not recursing into
-// the processed/ and failed/ subfolders). Successfully handled files are moved
-// to processed/; failures to failed/. It returns the count processed.
-func Process(ctx context.Context, dir string, out io.Writer, factory Factory) (int, error) {
+// the failed/ subfolder). Successfully handled files are deleted; failures go to
+// failed/. prompt is the extraction instruction sent with each image; empty uses
+// DefaultExtractPrompt. It returns the count processed.
+func Process(ctx context.Context, dir, prompt string, out io.Writer, factory Factory) (int, error) {
+	if prompt == "" {
+		prompt = DefaultExtractPrompt
+	}
 	log := dbg.New("capture")
 	log.Debug("scanning capture inbox", "dir", dir)
 
@@ -78,7 +85,7 @@ func Process(ctx context.Context, dir string, out io.Writer, factory Factory) (i
 		path := filepath.Join(dir, e.Name())
 		fmt.Fprintf(out, "\ncapture: processing %s\n", e.Name())
 		log.Debug("processing image", "name", e.Name(), "mime", mime)
-		if err := processOne(ctx, path, mime, out, factory); err != nil {
+		if err := processOne(ctx, path, mime, prompt, out, factory); err != nil {
 			fmt.Fprintf(out, "capture: %s failed: %v\n", e.Name(), err)
 			log.Debug("image failed", "name", e.Name(), "err", err)
 			moveAside(dir, "failed", e.Name(), out)
@@ -100,7 +107,7 @@ func Process(ctx context.Context, dir string, out io.Writer, factory Factory) (i
 	return processed, nil
 }
 
-func processOne(ctx context.Context, path, mime string, out io.Writer, factory Factory) error {
+func processOne(ctx context.Context, path, mime, prompt string, out io.Writer, factory Factory) error {
 	log := dbg.New("capture")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -112,7 +119,7 @@ func processOne(ctx context.Context, path, mime string, out io.Writer, factory F
 		return fmt.Errorf("agent setup: %w", err)
 	}
 	log.Debug("sending image to model for extraction")
-	return ag.RunWithImage(ctx, extractPrompt, data, mime)
+	return ag.RunWithImage(ctx, prompt, data, mime)
 }
 
 // moveAside moves name into dir/sub, keeping the inbox clean and avoiding

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/burcsahinoglu/agentbox/internal/capture"
 )
 
 func TestApplyTimezoneAffectsProcessAndChildren(t *testing.T) {
@@ -58,5 +60,20 @@ func TestPromptResolverOverride(t *testing.T) {
 	}
 	if p, ok := r("custom-task"); !ok || p != "DO THE CUSTOM THING" {
 		t.Errorf("new task from override file not resolved: %q ok=%v", p, ok)
+	}
+}
+
+func TestCaptureExtractPromptOverride(t *testing.T) {
+	t.Setenv("AGENTBOX_PROMPTS_DIR", "")
+	if captureExtractPrompt() != capture.DefaultExtractPrompt {
+		t.Error("without an override, the default capture prompt should be used")
+	}
+	dir := t.TempDir()
+	t.Setenv("AGENTBOX_PROMPTS_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, "process-captures.md"), []byte("EXTRACT DIFFERENTLY"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if captureExtractPrompt() != "EXTRACT DIFFERENTLY" {
+		t.Error("config/prompts/process-captures.md should override the default")
 	}
 }
