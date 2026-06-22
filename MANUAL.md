@@ -222,11 +222,17 @@ flip `- [ ]` to `- [x]` in `todos.md` to mark something done. From the CLI:
 
 ```sh
 docker compose exec agentbox-scheduler agentbox todo "call the dentist"   # add (no API key needed)
+docker compose exec agentbox-scheduler agentbox todos                     # list open todos
 docker compose exec agentbox-scheduler agentbox done "the dentist call"   # complete (model matches it)
 ```
 
-`todo` just appends to the store (instant, deterministic); `done` uses the model
-to match your description to the right open todo and refuses if it's ambiguous.
+`todo`/`todos` just touch the store (instant, deterministic); `done` uses the
+model to match your description to the right open todo and refuses if it's
+ambiguous.
+
+Or run **`./agentbox.sh`** from the folder with `docker-compose.yml` for a menu
+that wraps all of this (add/show/complete todos, run a briefing, process photos,
+scheduler start/stop/logs, view the journal) — no commands to memorize.
 
 ## 9. Capture from a photo
 
@@ -434,6 +440,7 @@ container path.
 | `agentbox run-task <name>` | Run one scheduled task now. |
 | `agentbox process-captures` | Process the capture inbox. |
 | `agentbox todo "<text>"` | Add a todo (no model/API key needed — appends to the store). |
+| `agentbox todos` | List open todos (no model needed). |
 | `agentbox done "<which todo>"` | Mark a todo done; the model matches your description to the right open todo. |
 | `agentbox mail-check` / `cal-check` | Test email / calendar setup (no API call). |
 

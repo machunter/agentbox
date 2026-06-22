@@ -198,14 +198,20 @@ Because they're plain files, you can also edit them directly — flip `- [ ]` to
 (iCloud/Dropbox) mounted as the notes dir lets you capture from your phone.
 Timestamps follow `AGENTBOX_TIMEZONE`.
 
-From the CLI: `agentbox todo` adds one (deterministic, no API key needed), and
-`agentbox done` completes one — the model matches your loose description to the
-right open todo and refuses if it's ambiguous:
+From the CLI: `agentbox todo` adds one (deterministic, no API key needed),
+`agentbox todos` lists open ones, and `agentbox done` completes one — the model
+matches your loose description to the right open todo and refuses if it's
+ambiguous:
 
 ```sh
 docker compose exec agentbox-scheduler agentbox todo "call the dentist"
+docker compose exec agentbox-scheduler agentbox todos
 docker compose exec agentbox-scheduler agentbox done "reply to yuval about the AI role"
 ```
+
+Or skip the long commands entirely: **`./agentbox.sh`** opens a small menu
+(add/show/complete todos, run a briefing, process photos, scheduler control,
+journal) that wraps these. Run it from the folder with `docker-compose.yml`.
 
 ### Capture from a photo
 

@@ -109,6 +109,19 @@ func main() {
 		return
 	}
 
+	// List open todos from the CLI. Deterministic — reads the notes store, no
+	// model or API key needed.
+	//   agentbox todos
+	if len(os.Args) > 1 && os.Args[1] == "todos" {
+		out, err := mcpnotes.NewStore(mcpnotes.DefaultDir()).ListTodos(false)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		fmt.Println(out)
+		return
+	}
+
 	// Internal subcommand: run as the read-only calendar (ICS) MCP server over
 	// stdio. Reads ICS feed URLs from the environment; no API key needed.
 	if len(os.Args) > 1 && os.Args[1] == "mcp-cal" {

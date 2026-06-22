@@ -12,6 +12,7 @@ Copy these three files into a folder on the target machine (or copy the whole
 - `.env.example`  → copy to `.env`
 - `schedule.example.yaml`  → copy to `config/schedule.yaml` (only if you want the scheduler)
 - `config/prompts/`  → editable prompt files for the built-in tasks (optional; copy if you want to tweak them)
+- `agentbox.sh`  → a menu UX for everyday actions (optional; see below)
 
 ```sh
 cp .env.example .env                              # then edit: set AGENTBOX_MODEL + your API key
@@ -39,8 +40,13 @@ docker compose down                         # stop
 
 ## Quick commands (todos, etc.)
 
-No Makefile needed — run agentbox subcommands with plain `docker compose`. If the
-scheduler is up, exec into it; otherwise use a one-off container:
+**Easiest: the menu.** Run `./agentbox.sh` (or `bash agentbox.sh`) from this
+folder for a simple menu — add/complete/show todos, run a briefing, process
+photos, start/stop the scheduler, view the journal. It wraps the commands below,
+picking exec-vs-one-off automatically. No Makefile or source checkout needed.
+
+Or run the subcommands directly with plain `docker compose`. If the scheduler is
+up, exec into it; otherwise use a one-off container:
 
 ```sh
 # scheduler running (docker compose up -d):
