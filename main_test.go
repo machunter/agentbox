@@ -77,3 +77,12 @@ func TestCaptureExtractPromptOverride(t *testing.T) {
 		t.Error("config/prompts/process-captures.md should override the default")
 	}
 }
+
+func TestVersionString(t *testing.T) {
+	s := versionString()
+	for _, want := range []string{"agentbox", version, "commit", commit} {
+		if !strings.Contains(s, want) {
+			t.Errorf("versionString() = %q, missing %q", s, want)
+		}
+	}
+}

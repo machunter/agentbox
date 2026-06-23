@@ -76,6 +76,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Self-built tool library | 🟡 | Persistent `tools/` dir (on PATH) + injected `INDEX.md`; the general agent reuses past scripts and saves new ones, so it re-derives less and increasingly orchestrates. Excludes capture. Quality depends on the model following the save/reuse protocol |
 | CLI todo management | ✅ | `agentbox todo`/`todos` (deterministic, no key), `agentbox done` (LLM-matched) |
 | Menu UX | ✅ | `agentbox.sh` — a zero-dependency host bash menu wrapping `docker compose` (exec when the scheduler is up, else one-off); no Makefile/source needed |
+| Build version stamping | ✅ | git commit + build date injected via `-ldflags` (Makefile/Dockerfile); `agentbox version` and a scheduler-startup banner confirm which build a container is running |
 | Email — send | 🔵 | Gated by human confirmation; design pending (§8) |
 | Local LLM inference | 🤔 | Would remove the inference caveat; large effort, out of scope for now |
 

@@ -8,14 +8,23 @@ BUILDER ?= agentbox-builder
 # Also tag :latest, unless VERSION already is latest (avoids a duplicate tag).
 LATEST_TAG := $(if $(filter-out latest,$(VERSION)),-t $(HUB_IMAGE):latest,)
 
+# Version stamping: injected into the binary via -ldflags so `agentbox version`
+# and the scheduler startup banner report exactly what's built. GIT_VERSION
+# carries a -dirty suffix when the tree has uncommitted changes.
+GIT_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+GIT_COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+BUILD_DATE  := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS := -s -w -X main.version=$(GIT_VERSION) -X main.commit=$(GIT_COMMIT) -X main.buildDate=$(BUILD_DATE)
+BUILD_ARGS := --build-arg AGENTBOX_VERSION=$(GIT_VERSION) --build-arg AGENTBOX_COMMIT=$(GIT_COMMIT) --build-arg AGENTBOX_DATE=$(BUILD_DATE)
+
 .PHONY: build run test docker-build docker-run compose-run compose-serve compose-logs compose-run-task compose-down publish tidy clean
 
 # Scheduler config file (host path), used by compose-run-task.
 SCHEDULE_FILE ?= schedule.yaml
 
-# Build the local binary.
+# Build the local binary (version-stamped).
 build:
-	go build -o agentbox .
+	go build -ldflags="$(LDFLAGS)" -o agentbox .
 
 # Run locally (reads ANTHROPIC_API_KEY from the environment).
 # Usage: make run TASK="list files and summarize this project"
@@ -28,9 +37,9 @@ test:
 tidy:
 	go mod tidy
 
-# Build the container image.
+# Build the container image (version-stamped).
 docker-build:
-	docker build -t $(IMAGE) .
+	docker build $(BUILD_ARGS) -t $(IMAGE) .
 
 # Run the agent in a container. Mounts the current dir as /workspace so the
 # agent can act on real files; pass the task via TASK.
@@ -81,7 +90,7 @@ publish:
 	@docker buildx inspect $(BUILDER) >/dev/null 2>&1 || \
 		docker buildx create --name $(BUILDER) --driver docker-container --bootstrap >/dev/null
 	docker buildx build --builder $(BUILDER) --platform linux/amd64,linux/arm64 \
-		-t $(HUB_IMAGE):$(VERSION) $(LATEST_TAG) --push .
+		$(BUILD_ARGS) -t $(HUB_IMAGE):$(VERSION) $(LATEST_TAG) --push .
 
 clean:
 	rm -f agentbox

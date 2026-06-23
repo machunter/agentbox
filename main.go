@@ -40,6 +40,13 @@ func main() {
 	// later runs (run_bash children inherit this environment).
 	ensureToolsDir()
 
+	// Report the build version/commit (to confirm what's running in a container).
+	//   agentbox version
+	if len(os.Args) > 1 && os.Args[1] == "version" {
+		fmt.Println(versionString())
+		return
+	}
+
 	// Internal subcommand: run as the filesystem MCP server over stdio. agentbox
 	// launches itself this way (see internal/agent); it needs no API key, so this
 	// dispatch comes first.
@@ -224,6 +231,9 @@ func runScheduler(mode string, args []string) {
 		fmt.Fprintln(os.Stderr, "error: AGENTBOX_SCHEDULE is not set (path to the schedule YAML)")
 		os.Exit(2)
 	}
+	// Banner so the scheduler logs record exactly which build is running.
+	fmt.Fprintln(os.Stdout, versionString())
+
 	cfg, err := schedule.Load(path)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

@@ -60,6 +60,15 @@ docker compose run --rm agentbox todo "call the dentist"
 These write to the same notes store the briefings use. Frequent user? Alias it:
 `alias abx='docker compose exec agentbox-scheduler agentbox'`, then `abx todo "…"`.
 
+To confirm exactly which build is running (handy after an update):
+
+```sh
+docker compose exec agentbox-scheduler agentbox version   # e.g. agentbox 0.3.0 (commit a1b2c3d, built …)
+```
+
+The git commit is also printed at the top of the scheduler logs on startup
+(`docker compose logs agentbox-scheduler`).
+
 ## Tasks & prompts
 
 The schedule lists **built-in tasks** — you just choose when each runs (a name +

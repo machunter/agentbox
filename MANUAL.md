@@ -446,6 +446,7 @@ container path.
 | `agentbox todos` | List open todos (no model needed). |
 | `agentbox done "<which todo>"` | Mark a todo done; the model matches your description to the right open todo. |
 | `agentbox mail-check` / `cal-check` | Test email / calendar setup (no API call). |
+| `agentbox version` | Print the build version, git commit, and build date. |
 
 ### Environment variables
 

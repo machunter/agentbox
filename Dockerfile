@@ -6,9 +6,15 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Build a static binary.
+# Build a static binary, stamping version/commit/date (passed as build args by
+# the Makefile; default to a dev build otherwise).
+ARG AGENTBOX_VERSION=dev
+ARG AGENTBOX_COMMIT=none
+ARG AGENTBOX_DATE=unknown
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/agentbox .
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X main.version=${AGENTBOX_VERSION} -X main.commit=${AGENTBOX_COMMIT} -X main.buildDate=${AGENTBOX_DATE}" \
+    -o /out/agentbox .
 
 # ---- runtime stage ----
 # Debian slim (not scratch/distroless) because the agent's run_bash tool needs
