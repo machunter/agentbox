@@ -50,21 +50,27 @@ func fetchTimeout() time.Duration {
 	return defaultFetchTimeout
 }
 
-// Config holds the calendar feeds and the timezone used to interpret day
-// boundaries and floating event times.
+// Config holds the calendar feeds, the timezone used to interpret day
+// boundaries and floating event times, and the addresses that identify the user
+// among an event's attendees (so their RSVP status can be surfaced).
 type Config struct {
 	URLs []string
 	Loc  *time.Location
+	// UserEmails is the set of normalized addresses that mean "me". Used to find
+	// the user's ATTENDEE line and read its PARTSTAT. Empty when unknown.
+	UserEmails map[string]bool
 }
 
-// LoadConfig reads ICS feed URLs (AGENTBOX_ICS_URLS, comma/space separated) and
-// an optional timezone (AGENTBOX_TIMEZONE, default UTC). The second return value
-// is false when no feeds are configured.
+// LoadConfig reads ICS feed URLs (AGENTBOX_ICS_URLS, comma/space separated), an
+// optional timezone (AGENTBOX_TIMEZONE, default UTC), and the user's own
+// calendar address(es) (AGENTBOX_CAL_EMAIL, comma/space separated; falls back to
+// AGENTBOX_IMAP_USER, which is usually the same address). The second return
+// value is false when no feeds are configured.
 func LoadConfig() (Config, bool) {
+	split := func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\t' }
+
 	var urls []string
-	for _, u := range strings.FieldsFunc(os.Getenv("AGENTBOX_ICS_URLS"), func(r rune) bool {
-		return r == ',' || r == ' ' || r == '\n' || r == '\t'
-	}) {
+	for _, u := range strings.FieldsFunc(os.Getenv("AGENTBOX_ICS_URLS"), split) {
 		if u != "" {
 			urls = append(urls, u)
 		}
@@ -75,7 +81,17 @@ func LoadConfig() (Config, bool) {
 			loc = l
 		}
 	}
-	return Config{URLs: urls, Loc: loc}, len(urls) > 0
+	raw := os.Getenv("AGENTBOX_CAL_EMAIL")
+	if strings.TrimSpace(raw) == "" {
+		raw = os.Getenv("AGENTBOX_IMAP_USER") // commonly the same address
+	}
+	emails := map[string]bool{}
+	for _, e := range strings.FieldsFunc(raw, split) {
+		if n := normalizeEmail(e); n != "" {
+			emails[n] = true
+		}
+	}
+	return Config{URLs: urls, Loc: loc, UserEmails: emails}, len(urls) > 0
 }
 
 // Configured reports whether any calendar feed is set up.
@@ -139,7 +155,7 @@ type searchInput struct {
 func (s *server) registerTools(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_upcoming_events",
-		Description: "List upcoming calendar events over the next N days (chronological), with start/end, title, and location.",
+		Description: "List upcoming calendar events over the next N days (chronological), with start/end, title, location, and the user's RSVP status. Events you have not confirmed are flagged ('not yet accepted', 'tentative', or 'DECLINED'); an unflagged event is accepted or has no RSVP info — never assume attendance for a flagged one.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in upcomingInput) (*mcp.CallToolResult, any, error) {
 		out, err := s.upcoming(ctx, daysOr(in.Days, defaultUpcomingDays), limitOr(in.Limit))
 		return textResult(out, err), nil, nil
@@ -213,7 +229,7 @@ func (s *server) instances(ctx context.Context, winStart, winEnd time.Time) ([]e
 	if err != nil {
 		return nil, err
 	}
-	return collectInstances(cals, winStart, winEnd, s.cfg.Loc), nil
+	return collectInstances(cals, winStart, winEnd, s.cfg.Loc, s.cfg.UserEmails), nil
 }
 
 // calendars returns the parsed feeds, caching them for cacheTTL so the several
@@ -334,11 +350,17 @@ type eventInstance struct {
 	Summary    string
 	Location   string
 	Calendar   string
+	// RSVP is the user's normalized participation status ("accepted",
+	// "declined", "tentative", "needs-action"), or "" when it can't be
+	// determined. Surfaced so the agent never assumes attendance.
+	RSVP string
 }
 
 // collectInstances expands each calendar's events (including recurrences) into
 // concrete occurrences within [winStart, winEnd), sorted by start time.
-func collectInstances(cals []*ical.Calendar, winStart, winEnd time.Time, loc *time.Location) []eventInstance {
+// userEmails identifies the user among attendees so each occurrence carries the
+// user's RSVP status; pass nil/empty to skip status resolution.
+func collectInstances(cals []*ical.Calendar, winStart, winEnd time.Time, loc *time.Location, userEmails map[string]bool) []eventInstance {
 	var out []eventInstance
 	for _, cal := range cals {
 		name := calendarName(cal)
@@ -348,6 +370,7 @@ func collectInstances(cals []*ical.Calendar, winStart, winEnd time.Time, loc *ti
 				summary = "(no title)"
 			}
 			location, _ := ev.Props.Text(ical.PropLocation)
+			rsvp := participationStatus(ev, userEmails)
 
 			start, err := ev.DateTimeStart(loc)
 			if err != nil {
@@ -369,12 +392,52 @@ func collectInstances(cals []*ical.Calendar, winStart, winEnd time.Time, loc *ti
 					Summary:  summary,
 					Location: location,
 					Calendar: name,
+					RSVP:     rsvp,
 				})
 			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })
 	return out
+}
+
+// participationStatus returns the user's RSVP status for an event, normalized to
+// lowercase ("accepted", "declined", "tentative", "needs-action"), or "" when it
+// can't be determined: no configured email, no matching ATTENDEE line, or no
+// PARTSTAT param. Attendees are matched by email address, case-insensitively.
+func participationStatus(ev ical.Event, userEmails map[string]bool) string {
+	if len(userEmails) == 0 {
+		return ""
+	}
+	for _, a := range ev.Props[ical.PropAttendee] {
+		if userEmails[normalizeEmail(a.Value)] {
+			return strings.ToLower(a.Params.Get(ical.ParamParticipationStatus))
+		}
+	}
+	return ""
+}
+
+// normalizeEmail lowercases an address and strips a leading "mailto:" so an
+// ATTENDEE value ("mailto:me@x.com") compares equal to a configured address.
+func normalizeEmail(s string) string {
+	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(s)), "mailto:")
+}
+
+// rsvpNote renders a short human note for a non-accepted RSVP, or "" to add no
+// annotation. Accepted and unknown ("") both render nothing, so the listing
+// stays clean and unchanged when no email is configured — only an explicitly
+// unconfirmed status is flagged.
+func rsvpNote(status string) string {
+	switch status {
+	case "declined":
+		return "DECLINED"
+	case "tentative":
+		return "tentative"
+	case "needs-action":
+		return "not yet accepted"
+	default: // "accepted" or "" (unknown)
+		return ""
+	}
 }
 
 // occurrences returns the start times of an event within the window: expanded
@@ -419,6 +482,9 @@ func formatInstances(insts []eventInstance, loc *time.Location) string {
 		}
 		if e.Calendar != "" {
 			fmt.Fprintf(&b, " [%s]", e.Calendar)
+		}
+		if note := rsvpNote(e.RSVP); note != "" {
+			fmt.Fprintf(&b, " — %s", note)
 		}
 		b.WriteString("\n")
 	}
