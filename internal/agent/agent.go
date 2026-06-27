@@ -277,15 +277,17 @@ func New(ctx context.Context, out io.Writer, opts ...Option) (*Agent, error) {
 		if cal := initCalendarTools(out); cal != nil {
 			toolsets = append(toolsets, cal)
 		}
+		slackNote := ""
 		if slack := initSlackTools(out); slack != nil {
 			toolsets = append(toolsets, slack)
+			slackNote = slackUserNote() // tell the agent the user's handle, if set
 		}
 
 		// Give the general agent its persistent, self-built tool library: append
 		// the protocol and the current index so it reuses past work and grows the
 		// library over time (the LLM increasingly orchestrates rather than
 		// re-derives). Capture stays locked down and does not get this.
-		instruction = systemPrompt + toolsSection(ToolsDir())
+		instruction = systemPrompt + slackNote + toolsSection(ToolsDir())
 	}
 
 	log.Debug("agent configured",
@@ -381,6 +383,16 @@ func initCalendarTools(out io.Writer) tool.Toolset {
 		return nil
 	}
 	return selfMCPToolset(out, "calendar tools", "mcp-cal")
+}
+
+// slackUserNote tells the agent the user's Slack handle (AGENTBOX_SLACK_USER) so
+// it can search for messages directed at them precisely. Empty when unset.
+func slackUserNote() string {
+	u := strings.TrimSpace(os.Getenv("AGENTBOX_SLACK_USER"))
+	if u == "" {
+		return ""
+	}
+	return " On Slack, the user is \"" + u + "\" — to find messages directed at them, search for that name/handle (e.g. search_messages \"" + u + "\")."
 }
 
 // initSlackTools wires in the read-only Slack MCP server, but only when a Slack

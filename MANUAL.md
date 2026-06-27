@@ -250,6 +250,10 @@ User IDs and `<@mentions>` are resolved to names. Posting to Slack is
 intentionally not supported yet — it will come as a separate, confirmation-gated
 capability.
 
+Set `AGENTBOX_SLACK_USER` to your Slack display name/handle so briefings can
+surface messages directed at *you* — the agent is told your handle and searches
+for it (otherwise it can't tell which messages are mentions of you).
+
 ## 9. Todos & notes
 
 agentbox keeps your todos and notes as plain markdown (`todos.md`, `inbox.md`)
@@ -524,6 +528,7 @@ container path.
 | `AGENTBOX_CAL_TIMEOUT` | Seconds to fetch an ICS feed (default 60); raise for large feeds. |
 | `AGENTBOX_CAL_CACHE_TTL` | Seconds to reuse a cached ICS feed before revalidating (default 900); `0` = always revalidate. |
 | `AGENTBOX_SLACK_TOKEN` | Slack token; enables the Slack tools. User token (`xoxp-`) for search; bot token (`xoxb-`) for the rest. |
+| `AGENTBOX_SLACK_USER` | Your Slack display name/handle, so briefings can find messages directed at you. |
 | `AGENTBOX_SLACK_LOOKBACK_DAYS` | Default `read_channel` history lookback (days); `0`/unset = count-based only. |
 | `AGENTBOX_SLACK_TIMEOUT` | Seconds for a single Slack API request (default 30). |
 | `AGENTBOX_TIMEZONE` | Timezone for day boundaries and cron (e.g. `America/Los_Angeles`). |
