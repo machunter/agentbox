@@ -1,6 +1,10 @@
 package mcpslack
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -210,5 +214,44 @@ func TestLoadConfig(t *testing.T) {
 	t.Setenv("AGENTBOX_SLACK_TOKEN", "   ")
 	if _, ok := LoadConfig(); ok {
 		t.Error("whitespace token should be unconfigured")
+	}
+}
+
+func TestIsMissingScope(t *testing.T) {
+	if !isMissingScope(fmt.Errorf("conversations.list: missing_scope")) {
+		t.Error("should detect missing_scope")
+	}
+	if isMissingScope(fmt.Errorf("conversations.list: invalid_auth")) {
+		t.Error("should not flag a different error")
+	}
+	if isMissingScope(nil) {
+		t.Error("nil is not missing_scope")
+	}
+}
+
+func TestChannelsFallsBackOnMissingScope(t *testing.T) {
+	var publicOnlyHits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Query().Get("types"), "private_channel") {
+			_, _ = w.Write([]byte(`{"ok":false,"error":"missing_scope"}`)) // token lacks groups:read
+			return
+		}
+		publicOnlyHits++
+		_, _ = w.Write([]byte(`{"ok":true,"channels":[{"id":"C1","name":"general"}],"response_metadata":{"next_cursor":""}}`))
+	}))
+	defer srv.Close()
+
+	s := newServer(Config{Token: "x", Loc: time.UTC})
+	s.base = srv.URL + "/"
+
+	chans, err := s.channels(context.Background(), "public_channel,private_channel")
+	if err != nil {
+		t.Fatalf("channels should fall back, got error: %v", err)
+	}
+	if publicOnlyHits == 0 {
+		t.Error("expected a retry requesting public channels only")
+	}
+	if len(chans) != 1 || chans[0].Name != "general" {
+		t.Errorf("fallback channels = %+v, want [general]", chans)
 	}
 }

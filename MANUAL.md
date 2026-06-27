@@ -229,14 +229,21 @@ To get the token:
 
 1. Go to **api.slack.com/apps → Create New App → From scratch**, pick your
    workspace.
-2. Open **OAuth & Permissions** and add **User Token Scopes**: `channels:history`,
-   `groups:history`, `channels:read`, `users:read`, and `search:read`.
-3. Click **Install to Workspace** and authorize.
+2. Open **OAuth & Permissions** and add **User Token Scopes**:
+   - `channels:read`, `groups:read` — list public and private channels
+   - `channels:history`, `groups:history` — read channel messages and threads
+   - `users:read` — resolve user IDs to names
+   - `search:read` — `search_messages`
+   - *(optional, for DMs)* `im:read`, `mpim:read`, `im:history`, `mpim:history`
+3. Click **Install to Workspace** and authorize. (Adding scopes later requires a
+   **reinstall** to take effect.)
 4. Copy the **User OAuth Token** (`xoxp-…`) into `AGENTBOX_SLACK_TOKEN`.
 
 A **user** token is recommended because `search_messages` only works on user
-tokens; a bot token (`xoxb-…`) covers the other tools if you prefer. Test it
-without spending API credits:
+tokens; a bot token (`xoxb-…`) covers the other tools if you prefer. If the token
+is missing a scope you'll see `missing_scope` — add it and reinstall. (Channel
+listing degrades gracefully: with only `channels:read`, it lists public channels
+and skips private ones rather than failing.) Test it without spending API credits:
 
 ```sh
 docker compose run --rm --entrypoint agentbox agentbox slack-check

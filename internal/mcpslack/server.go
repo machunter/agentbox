@@ -80,6 +80,7 @@ func Configured() bool {
 type server struct {
 	cfg    Config
 	client *http.Client
+	base   string // API base URL (overridable in tests)
 
 	// In-process caches so the several tool calls in one run don't re-resolve
 	// the same channels/users. The server is short-lived (one run).
@@ -105,6 +106,7 @@ func newServer(cfg Config) *server {
 	return &server{
 		cfg:      cfg,
 		client:   &http.Client{Timeout: fetchTimeout()},
+		base:     apiBase,
 		userName: map[string]string{},
 		chanByID: map[string]string{},
 	}
@@ -261,6 +263,29 @@ func (s *server) channels(ctx context.Context, types string) ([]channel, error) 
 	if strings.TrimSpace(types) == "" {
 		types = "public_channel,private_channel"
 	}
+	all, err := s.listConversations(ctx, types)
+	if err != nil && isMissingScope(err) && types != "public_channel" {
+		// The token lacks the scope for some channel types (e.g. groups:read for
+		// private channels). Fall back to public channels so listing and channel
+		// resolution still work with a minimally-scoped token.
+		fmt.Fprintf(os.Stderr, "mcp-slack: %v — listing public channels only (add groups:read/im:read/mpim:read for private channels and DMs)\n", err)
+		all, err = s.listConversations(ctx, "public_channel")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	s.chanList = all
+	for _, c := range all {
+		s.chanByID[c.ID] = c.displayName()
+	}
+	s.mu.Unlock()
+	return all, nil
+}
+
+// listConversations pages through conversations.list for the given types.
+func (s *server) listConversations(ctx context.Context, types string) ([]channel, error) {
 	var all []channel
 	cursor := ""
 	for {
@@ -278,14 +303,12 @@ func (s *server) channels(ctx context.Context, types string) ([]channel, error) 
 			break
 		}
 	}
-
-	s.mu.Lock()
-	s.chanList = all
-	for _, c := range all {
-		s.chanByID[c.ID] = c.displayName()
-	}
-	s.mu.Unlock()
 	return all, nil
+}
+
+// isMissingScope reports whether err is a Slack missing_scope error.
+func isMissingScope(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "missing_scope")
 }
 
 // resolveChannelID maps a channel reference (name, #name, or ID) to its ID.
@@ -356,7 +379,7 @@ func (s *server) oldest(sinceDays int) string {
 // {"ok": false, "error": "..."} responses. The token rides in the Authorization
 // header (never the URL), so errors can be surfaced without leaking it.
 func (s *server) call(ctx context.Context, method string, params url.Values, out apiResponse) error {
-	endpoint := apiBase + method
+	endpoint := s.base + method
 	if len(params) > 0 {
 		endpoint += "?" + params.Encode()
 	}
