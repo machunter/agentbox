@@ -55,6 +55,10 @@ adapter.
 - **`internal/mcpcal`** — a read-only calendar MCP server over iCal (ICS) feeds
   (`list_upcoming_events`, `events_on_day`, `search_events`), expanding recurring
   events within the query window. Enabled only when feed URLs are configured.
+- **`internal/mcpslack`** — a read-only Slack MCP server over the Slack Web API
+  (`list_channels`, `read_channel`, `read_thread`, `search_messages`), resolving
+  user IDs and `<@mentions>` to names. Authenticated by a single configured token
+  (no OAuth). Enabled only when `AGENTBOX_SLACK_TOKEN` is set.
 - **`internal/mcpnotes`** — a local notes/todo MCP server (`add_todo`,
   `list_todos`, `complete_todo`, `add_note`, `search_notes`) over plain markdown
   (`todos.md` + `inbox.md`). Always on; the agent files and manages todos/notes
@@ -318,8 +322,12 @@ the morning briefing, what it captured, and so on. Location is
 | `AGENTBOX_IMAP_PASS` | — | IMAP password (use an app password). |
 | `AGENTBOX_EMAIL_SINCE_DAYS` | `0` (no limit) | Minimum lookback window (days) for the email tools; a per-call `since_days` can widen it but not narrow below this. |
 | `AGENTBOX_ICS_URLS` | — | Calendar ICS feed URLs (comma-separated); enables calendar tools. |
+| `AGENTBOX_CAL_EMAIL` | `AGENTBOX_IMAP_USER` | Your own calendar address(es), comma-separated; lets the agent read your RSVP status so it won't assume you accepted an invite. |
 | `AGENTBOX_CAL_TIMEOUT` | `60` | Seconds to fetch an ICS feed; raise for large feeds (tens of MB). |
 | `AGENTBOX_CAL_CACHE_TTL` | `900` | Seconds to reuse a cached ICS feed before revalidating (conditional GET); `0` = always revalidate. |
+| `AGENTBOX_SLACK_TOKEN` | — | Slack token; enables the Slack tools. Use a user token (`xoxp-`) for `search_messages`; a bot token (`xoxb-`) covers the rest. |
+| `AGENTBOX_SLACK_LOOKBACK_DAYS` | `0` (no limit) | Default history lookback (days) for `read_channel`; a per-call `since_days` overrides it. |
+| `AGENTBOX_SLACK_TIMEOUT` | `30` | Seconds for a single Slack API request. |
 | `AGENTBOX_TIMEZONE` | `UTC` | Timezone for day boundaries, event times, and cron schedules. |
 | `AGENTBOX_SCHEDULE` | — | Path to the schedule YAML (required for `serve` / `run-task`). |
 | `AGENTBOX_MAX_TOOL_CALLS` | `50` | Max tool-call rounds before a run is stopped (then it's asked to summarize). Raise for busy work mailboxes. |
@@ -367,6 +375,25 @@ URL from Settings → your calendar → Integrate calendar → **"Secret address
 iCal format"** — a private, read-only URL, so no OAuth or app password is needed.
 Set `AGENTBOX_TIMEZONE` (e.g. `America/New_York`) so "today" and event times read
 correctly. Test setup without the agent via `agentbox cal-check`.
+
+Set `AGENTBOX_CAL_EMAIL` to your own calendar address (it defaults to
+`AGENTBOX_IMAP_USER`) so the agent reads *your* RSVP status on each event. Events
+you haven't confirmed are flagged in the listing — `not yet accepted`,
+`tentative`, or `DECLINED` — so the agent doesn't treat an unanswered invite as
+one you're attending. Without an address set, events simply carry no RSVP info.
+
+### Slack (read-only)
+
+Set `AGENTBOX_SLACK_TOKEN` to give the agent read-only Slack tools:
+`list_channels`, `read_channel`, `read_thread`, and `search_messages` (user IDs
+and `<@mentions>` are resolved to names). To get a token: create a Slack app at
+api.slack.com/apps → **OAuth & Permissions** → add user-token scopes
+(`channels:history`, `groups:history`, `search:read`, `users:read`,
+`channels:read`) → **Install to Workspace** → copy the **User OAuth Token**
+(`xoxp-…`). A bot token (`xoxb-…`) works for everything except `search_messages`,
+which Slack only allows on user tokens. Test the token without the agent via
+`agentbox slack-check`. Posting isn't supported yet — it'll come as a separate,
+confirmation-gated capability, the same as email sending.
 
 ## Debugging
 

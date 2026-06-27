@@ -60,7 +60,7 @@ func TestCollectInstancesExpandsRecurrenceAndFiltersWindow(t *testing.T) {
 
 	// Window: 2026-06-15 .. 2026-06-23 (exclusive end). Expect, in order:
 	// 06-15 standup, 06-18 Surgery (all-day), 06-20 single, 06-22 standup.
-	insts := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 15), day(2026, 6, 23), time.UTC)
+	insts := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 15), day(2026, 6, 23), time.UTC, nil)
 
 	if len(insts) != 4 {
 		t.Fatalf("want 4 instances, got %d: %+v", len(insts), insts)
@@ -94,7 +94,7 @@ func TestCollectInstancesEmptyWindow(t *testing.T) {
 	cal := decodeCal(t, sampleICS)
 	// 06-16 .. 06-18: no single (06-20), no standup (06-15 before, 06-22 after),
 	// no Surgery (06-18 is excluded by the end boundary).
-	insts := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 16), day(2026, 6, 18), time.UTC)
+	insts := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 16), day(2026, 6, 18), time.UTC, nil)
 	if len(insts) != 0 {
 		t.Fatalf("want 0 instances, got %d: %+v", len(insts), insts)
 	}
@@ -102,7 +102,7 @@ func TestCollectInstancesEmptyWindow(t *testing.T) {
 
 func TestAllDayRendering(t *testing.T) {
 	cal := decodeCal(t, sampleICS)
-	insts := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 18), day(2026, 6, 19), time.UTC)
+	insts := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 18), day(2026, 6, 19), time.UTC, nil)
 	if len(insts) != 1 || !insts[0].AllDay {
 		t.Fatalf("want 1 all-day instance, got %+v", insts)
 	}
@@ -117,7 +117,7 @@ func TestAllDayRendering(t *testing.T) {
 
 func TestEventEndDuration(t *testing.T) {
 	cal := decodeCal(t, sampleICS)
-	insts := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 20), day(2026, 6, 21), time.UTC)
+	insts := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 20), day(2026, 6, 21), time.UTC, nil)
 	if len(insts) != 1 {
 		t.Fatalf("want 1, got %d", len(insts))
 	}
@@ -163,6 +163,91 @@ func TestLoadConfig(t *testing.T) {
 	}
 	if cfg.Loc.String() != "America/New_York" {
 		t.Errorf("timezone = %q", cfg.Loc.String())
+	}
+}
+
+func TestLoadConfigUserEmails(t *testing.T) {
+	t.Setenv("AGENTBOX_ICS_URLS", "https://a.example/cal.ics")
+	t.Setenv("AGENTBOX_IMAP_USER", "fallback@example.com")
+
+	// Explicit AGENTBOX_CAL_EMAIL wins and is normalized (lowercase, multi-value).
+	t.Setenv("AGENTBOX_CAL_EMAIL", "Me@Example.com, alias@example.com")
+	cfg, _ := LoadConfig()
+	if !cfg.UserEmails["me@example.com"] || !cfg.UserEmails["alias@example.com"] {
+		t.Errorf("CAL_EMAIL not parsed/normalized: %v", cfg.UserEmails)
+	}
+	if cfg.UserEmails["fallback@example.com"] {
+		t.Error("CAL_EMAIL should take precedence over IMAP_USER")
+	}
+
+	// Falls back to the IMAP user when CAL_EMAIL is unset.
+	t.Setenv("AGENTBOX_CAL_EMAIL", "")
+	cfg, _ = LoadConfig()
+	if !cfg.UserEmails["fallback@example.com"] {
+		t.Errorf("should fall back to IMAP_USER: %v", cfg.UserEmails)
+	}
+}
+
+const rsvpICS = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//test//test//EN
+BEGIN:VEVENT
+UID:invite@test
+DTSTART:20260620T100000Z
+DTEND:20260620T110000Z
+SUMMARY:Team Sync
+ORGANIZER;CN=Boss:mailto:boss@example.com
+ATTENDEE;CN=Boss;PARTSTAT=ACCEPTED:mailto:boss@example.com
+ATTENDEE;CN=Me;PARTSTAT=NEEDS-ACTION:mailto:me@example.com
+END:VEVENT
+END:VCALENDAR
+`
+
+func TestParticipationStatus(t *testing.T) {
+	cal := decodeCal(t, rsvpICS)
+	ev := cal.Events()[0]
+
+	me := map[string]bool{"me@example.com": true}
+	if got := participationStatus(ev, me); got != "needs-action" {
+		t.Errorf("my status = %q, want needs-action", got)
+	}
+	// No configured email -> unknown (preserves prior behavior).
+	if got := participationStatus(ev, nil); got != "" {
+		t.Errorf("status with no email = %q, want empty", got)
+	}
+	// An address not on the invite -> unknown, not someone else's status.
+	if got := participationStatus(ev, map[string]bool{"stranger@example.com": true}); got != "" {
+		t.Errorf("non-attendee status = %q, want empty", got)
+	}
+}
+
+func TestCollectInstancesSurfacesRSVP(t *testing.T) {
+	cal := decodeCal(t, rsvpICS)
+	insts := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 20), day(2026, 6, 21), time.UTC, map[string]bool{"me@example.com": true})
+	if len(insts) != 1 {
+		t.Fatalf("want 1 instance, got %d", len(insts))
+	}
+	if insts[0].RSVP != "needs-action" {
+		t.Errorf("RSVP = %q, want needs-action", insts[0].RSVP)
+	}
+	out := formatInstances(insts, time.UTC)
+	if !strings.Contains(out, "not yet accepted") {
+		t.Errorf("unconfirmed event should be flagged: %s", out)
+	}
+}
+
+func TestRSVPNote(t *testing.T) {
+	cases := map[string]string{
+		"declined":     "DECLINED",
+		"tentative":    "tentative",
+		"needs-action": "not yet accepted",
+		"accepted":     "", // confirmed -> no annotation
+		"":             "", // unknown -> no annotation
+	}
+	for status, want := range cases {
+		if got := rsvpNote(status); got != want {
+			t.Errorf("rsvpNote(%q) = %q, want %q", status, got, want)
+		}
 	}
 }
 

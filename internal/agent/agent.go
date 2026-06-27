@@ -38,6 +38,7 @@ import (
 	"github.com/burcsahinoglu/agentbox/internal/llm"
 	"github.com/burcsahinoglu/agentbox/internal/mcpcal"
 	"github.com/burcsahinoglu/agentbox/internal/mcpmail"
+	"github.com/burcsahinoglu/agentbox/internal/mcpslack"
 	"github.com/burcsahinoglu/agentbox/internal/memory"
 	"github.com/burcsahinoglu/agentbox/internal/tools"
 )
@@ -65,7 +66,9 @@ const (
 		"Stick to the inbox and the Sent folder: pass mailbox \"Sent\" directly to scan sent mail (it resolves to the provider's real Sent folder automatically) — you do NOT need list_mailboxes to find it. " +
 		"Do not browse, list, or read other folders/labels unless the task explicitly requires it; some accounts have many and reading them wastes time. " +
 		"Scanning Sent is for checking whether you already replied — e.g. to find a reply that resolves an open todo and then complete_todo it. " +
-		"When a calendar is configured, you have read-only calendar tools (list_upcoming_events, events_on_day, search_events). " +
+		"When a calendar is configured, you have read-only calendar tools (list_upcoming_events, events_on_day, search_events); " +
+		"events show your RSVP status, and one flagged 'not yet accepted', 'tentative', or 'DECLINED' is NOT confirmed — don't state or assume you're attending it. " +
+		"When Slack is configured, you have read-only Slack tools (list_channels, read_channel, read_thread, search_messages); find a channel with list_channels, then read it by name or ID. " +
 		"Always use these dedicated email and calendar tools for those sources — do NOT fetch mailboxes or calendar/ICS feeds over the network with run_bash (curl, python, perl, etc.). " +
 		"If a connector you need isn't available (because it isn't configured), say so plainly and move on; do not improvise with bash or scripting languages. " +
 		"You have notes/todo tools (add_todo, list_todos, complete_todo, add_note, search_notes) for capturing and managing the user's todos and notes. " +
@@ -274,6 +277,9 @@ func New(ctx context.Context, out io.Writer, opts ...Option) (*Agent, error) {
 		if cal := initCalendarTools(out); cal != nil {
 			toolsets = append(toolsets, cal)
 		}
+		if slack := initSlackTools(out); slack != nil {
+			toolsets = append(toolsets, slack)
+		}
 
 		// Give the general agent its persistent, self-built tool library: append
 		// the protocol and the current index so it reuses past work and grows the
@@ -375,6 +381,15 @@ func initCalendarTools(out io.Writer) tool.Toolset {
 		return nil
 	}
 	return selfMCPToolset(out, "calendar tools", "mcp-cal")
+}
+
+// initSlackTools wires in the read-only Slack MCP server, but only when a Slack
+// token is configured — otherwise Slack is silently skipped.
+func initSlackTools(out io.Writer) tool.Toolset {
+	if !mcpslack.Configured() {
+		return nil
+	}
+	return selfMCPToolset(out, "slack tools", "mcp-slack")
 }
 
 // initMemory builds the local memory service and probes the embedder. It

@@ -5,7 +5,7 @@
 > treat it as the source of intent, not a frozen spec.
 
 **Status key:** ✅ Shipped (validated live) · 🟡 Shipped (unit-tested, not exercised live) · 🔵 Planned · 🤔 Considering
-**Last updated:** 2026-06-19 (startup daily catch-up; captures deleted after filing) · **Branch of record:** `main`
+**Last updated:** 2026-06-25 (read-only Slack connector); 2026-06-24 (mailbox aliases + `list_mailboxes`; calendar RSVP status) · **Branch of record:** `main`
 
 ---
 
@@ -70,7 +70,8 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | Multimodal agent input (images) | ✅ | `RunWithImage`; adapter sends inline image as a vision block |
 | Multi-directory access | ✅ | `MOUNTS` / compose override; mount under `/workspace` |
 | Email — read (`list_new_emails`, `list_recent_emails`, `search_emails`, `read_email`, `list_mailboxes`) | ✅ | IMAP, read-only; count-bounded, optional date window (`AGENTBOX_EMAIL_SINCE_DAYS` floor / `since_days`). `list_new_emails` is incremental: a persisted per-mailbox UID watermark (UIDVALIDITY-aware) means briefings only process genuinely new mail, no reprocessing/duplicate todos. Mailbox aliases (`Sent`/`Drafts`/`Trash`/`Junk`/`Archive`) resolve to the provider's real folder via RFC 6154 SPECIAL-USE, so the agent can scan sent mail to e.g. close a todo once a reply went out |
-| Calendar — read (`list_upcoming_events`, `events_on_day`, `search_events`) | ✅ | ICS feeds, read-only, recurrence-expanded, all-day aware; validated live. Configurable fetch timeout; in-run + cross-run caching (conditional GET / 304) so large feeds (tens of MB) aren't re-downloaded each run. The full feed is filtered to the query window in-process — only matched events enter the model context |
+| Calendar — read (`list_upcoming_events`, `events_on_day`, `search_events`) | ✅ | ICS feeds, read-only, recurrence-expanded, all-day aware; validated live. Configurable fetch timeout; in-run + cross-run caching (conditional GET / 304) so large feeds (tens of MB) aren't re-downloaded each run. The full feed is filtered to the query window in-process — only matched events enter the model context. Surfaces the user's RSVP status per event (via `AGENTBOX_CAL_EMAIL`, default `AGENTBOX_IMAP_USER`): unconfirmed invites are flagged `not yet accepted`/`tentative`/`DECLINED` so the agent never assumes attendance |
+| Slack — read (`list_channels`, `read_channel`, `read_thread`, `search_messages`) | 🟡 | Slack Web API, read-only; single configured token (`AGENTBOX_SLACK_TOKEN`), no OAuth — user token (`xoxp-`) for search, bot token (`xoxb-`) for the rest. Resolves user IDs and `<@mentions>` to names; channel lookup by name or ID; history bounded by `AGENTBOX_SLACK_LOOKBACK_DAYS` / per-call `since_days`. Unit-tested; `slack-check` diagnostic. Posting deferred (confirmation-gated, like email send) |
 | Long-lived / scheduled operation (`serve`, `run-task`) | ✅ | Cron scheduler runs YAML-configured tasks in `AGENTBOX_TIMEZONE`; on startup it runs every daily-or-more-frequent task once (catch-up); run path validated live via `run-task`, timed firing via robfig/cron |
 | Daily output journal | ✅ | Each scheduled task's result appended to `journal/YYYY-MM-DD.md`; the no-SMTP delivery channel |
 | Self-built tool library | 🟡 | Persistent `tools/` dir (on PATH) + injected `INDEX.md`; the general agent reuses past scripts and saves new ones, so it re-derives less and increasingly orchestrates. Excludes capture. Quality depends on the model following the save/reuse protocol |
@@ -119,6 +120,8 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | `AGENTBOX_MAX_TOOL_CALLS` | Tool-call rounds before a run stops and is asked to summarize (default 50). |
 | `AGENTBOX_DEBUG` | Verbose debug logging to stderr (off by default). |
 | `AGENTBOX_ICS_URLS`, `AGENTBOX_TIMEZONE` | Read-only calendar (ICS feeds) + day-boundary / cron timezone. |
+| `AGENTBOX_SLACK_TOKEN`, `AGENTBOX_SLACK_LOOKBACK_DAYS` | Read-only Slack (Web API token) + default channel-history lookback window. |
+| `AGENTBOX_CAL_EMAIL` | User's own calendar address(es); enables per-event RSVP status. Defaults to `AGENTBOX_IMAP_USER`. |
 | `AGENTBOX_SCHEDULE` | Path to the schedule YAML (for `serve` / `run-task`). |
 | `AGENTBOX_NOTES_DIR` | Where todos.md / inbox.md live (default `notes/` under the workspace). |
 | `AGENTBOX_CAPTURE_DIR` / `AGENTBOX_CAPTURE_HOST` | Capture inbox the agent reads photos from / the host folder mounted as it. |

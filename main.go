@@ -25,6 +25,7 @@ import (
 	"github.com/burcsahinoglu/agentbox/internal/mcpfs"
 	"github.com/burcsahinoglu/agentbox/internal/mcpmail"
 	"github.com/burcsahinoglu/agentbox/internal/mcpnotes"
+	"github.com/burcsahinoglu/agentbox/internal/mcpslack"
 	"github.com/burcsahinoglu/agentbox/internal/schedule"
 )
 
@@ -144,6 +145,27 @@ func main() {
 		out, err := mcpcal.CheckConnection(context.Background())
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "cal-check:", err)
+			os.Exit(1)
+		}
+		fmt.Println(out)
+		return
+	}
+
+	// Internal subcommand: run as the read-only Slack MCP server over stdio.
+	// Reads AGENTBOX_SLACK_TOKEN from the environment; no API key needed.
+	if len(os.Args) > 1 && os.Args[1] == "mcp-slack" {
+		if err := mcpslack.Serve(context.Background()); err != nil {
+			fmt.Fprintln(os.Stderr, "mcp-slack:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Diagnostic subcommand: test Slack token/reachability (no MCP/agent).
+	if len(os.Args) > 1 && os.Args[1] == "slack-check" {
+		out, err := mcpslack.CheckConnection(context.Background())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "slack-check:", err)
 			os.Exit(1)
 		}
 		fmt.Println(out)

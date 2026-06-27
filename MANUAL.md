@@ -20,13 +20,14 @@ notes, remembers across sessions, and can run tasks on a schedule.
 5. [Give it your files](#5-give-it-your-files)
 6. [Connect email](#6-connect-email-read-only)
 7. [Connect your calendar](#7-connect-your-calendar-read-only)
-8. [Todos & notes](#8-todos--notes)
-9. [Capture from a photo](#9-capture-from-a-photo)
-10. [Run it on a schedule](#10-run-it-on-a-schedule)
-11. [Personal vs work](#11-personal-vs-work)
-12. [Privacy](#privacy)
-13. [Troubleshooting](#13-troubleshooting)
-14. [Reference](#14-reference)
+8. [Connect Slack](#8-connect-slack-read-only)
+9. [Todos & notes](#9-todos--notes)
+10. [Capture from a photo](#10-capture-from-a-photo)
+11. [Run it on a schedule](#11-run-it-on-a-schedule)
+12. [Personal vs work](#12-personal-vs-work)
+13. [Privacy](#privacy)
+14. [Troubleshooting](#14-troubleshooting)
+15. [Reference](#15-reference)
 
 ---
 
@@ -207,7 +208,49 @@ docker compose run --rm --entrypoint agentbox agentbox cal-check
 
 Then: `make compose-run TASK="what's on my calendar this week?"`.
 
-## 8. Todos & notes
+**Set your own address so RSVP status is read correctly.** An ICS feed lists
+every event you're invited to, including ones you haven't answered. Set
+`AGENTBOX_CAL_EMAIL=you@example.com` (it defaults to `AGENTBOX_IMAP_USER`) and the
+agent reads *your* `PARTSTAT` on each event, flagging unconfirmed ones as `not yet
+accepted`, `tentative`, or `DECLINED` — so it won't tell you you're attending a
+meeting you never accepted. Comma-separate multiple addresses/aliases. Without an
+address, events carry no RSVP info (prior behavior).
+
+## 8. Connect Slack (read-only)
+
+agentbox reads Slack through a single **token** — no OAuth flow. You create a
+small Slack app, give it read permission, and paste its token into `.env`:
+
+```
+AGENTBOX_SLACK_TOKEN=xoxp-...
+```
+
+To get the token:
+
+1. Go to **api.slack.com/apps → Create New App → From scratch**, pick your
+   workspace.
+2. Open **OAuth & Permissions** and add **User Token Scopes**: `channels:history`,
+   `groups:history`, `channels:read`, `users:read`, and `search:read`.
+3. Click **Install to Workspace** and authorize.
+4. Copy the **User OAuth Token** (`xoxp-…`) into `AGENTBOX_SLACK_TOKEN`.
+
+A **user** token is recommended because `search_messages` only works on user
+tokens; a bot token (`xoxb-…`) covers the other tools if you prefer. Test it
+without spending API credits:
+
+```sh
+docker compose run --rm --entrypoint agentbox agentbox slack-check
+```
+
+Then ask: `make compose-run TASK="what did I miss in #engineering today?"`. The
+agent finds the channel with `list_channels`, reads it with `read_channel`
+(scoped to the last `AGENTBOX_SLACK_LOOKBACK_DAYS`, or a `since_days` you ask
+for), follows threads with `read_thread`, and searches with `search_messages`.
+User IDs and `<@mentions>` are resolved to names. Posting to Slack is
+intentionally not supported yet — it will come as a separate, confirmation-gated
+capability.
+
+## 9. Todos & notes
 
 agentbox keeps your todos and notes as plain markdown (`todos.md`, `inbox.md`)
 in a notes folder (default `notes/` under the workspace). Just ask:
@@ -237,7 +280,7 @@ Or run **`./agentbox.sh`** from the folder with `docker-compose.yml` for a menu
 that wraps all of this (add/show/complete todos, run a briefing, process photos,
 scheduler start/stop/logs, view the journal) — no commands to memorize.
 
-## 9. Capture from a photo
+## 10. Capture from a photo
 
 Snap a photo of a handwritten list and let Claude's vision read it and file the
 items. Point the capture inbox at a synced folder so you can drop photos from
@@ -259,7 +302,7 @@ failures are retained in a `failed/` subfolder for inspection). Tip: handwriting
 recognition is usually good but depends on legibility. To do this automatically,
 see the schedule below.
 
-## 10. Run it on a schedule
+## 11. Run it on a schedule
 
 This is what makes agentbox "run your day." Create a schedule:
 
@@ -322,7 +365,7 @@ assistant's "delivery" without email/push. Read today's file to catch the
 morning briefing etc. Set the location with `AGENTBOX_JOURNAL_DIR` (host mount
 `AGENTBOX_JOURNAL_HOST` in compose).
 
-## 11. Personal vs work
+## 12. Personal vs work
 
 Run agentbox separately on each machine and isolate their memory with
 `AGENTBOX_NAMESPACE`:
@@ -368,7 +411,7 @@ To make the stack *pull* the published image instead of building locally, set
 `image: machunter/agentbox:latest` on the `agentbox` and `agentbox-scheduler`
 services in `docker-compose.yml`.
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
 **"credit balance is too low" (HTTP 400)** — your Anthropic key has no credits.
 Add credits under Plans & Billing.
@@ -421,7 +464,7 @@ tool call *and result*, memory searches, and capture decisions to stderr.
 (or a folder you added via `MOUNTS` / the override file). Refer to it by its
 container path.
 
-## 14. Reference
+## 15. Reference
 
 ### Make targets
 
@@ -465,8 +508,12 @@ container path.
 | `AGENTBOX_EMAIL_SINCE_DAYS` | Minimum lookback window (days) for email tools; the agent can widen but not narrow it; 0/unset = no date limit. |
 | `AGENTBOX_MAIL_STATE_DIR` | Where `list_new_emails` stores per-mailbox UID watermarks (default: the memory dir). |
 | `AGENTBOX_ICS_URLS` | Calendar ICS feed URLs (comma-separated). |
+| `AGENTBOX_CAL_EMAIL` | Your own calendar address(es) (comma-separated); enables per-event RSVP status. Defaults to `AGENTBOX_IMAP_USER`. |
 | `AGENTBOX_CAL_TIMEOUT` | Seconds to fetch an ICS feed (default 60); raise for large feeds. |
 | `AGENTBOX_CAL_CACHE_TTL` | Seconds to reuse a cached ICS feed before revalidating (default 900); `0` = always revalidate. |
+| `AGENTBOX_SLACK_TOKEN` | Slack token; enables the Slack tools. User token (`xoxp-`) for search; bot token (`xoxb-`) for the rest. |
+| `AGENTBOX_SLACK_LOOKBACK_DAYS` | Default `read_channel` history lookback (days); `0`/unset = count-based only. |
+| `AGENTBOX_SLACK_TIMEOUT` | Seconds for a single Slack API request (default 30). |
 | `AGENTBOX_TIMEZONE` | Timezone for day boundaries and cron (e.g. `America/Los_Angeles`). |
 | `AGENTBOX_NOTES_DIR` | Where `todos.md` / `inbox.md` live. |
 | `AGENTBOX_CAPTURE_DIR` / `AGENTBOX_CAPTURE_HOST` | Capture inbox (container path / host folder). |
