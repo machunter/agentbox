@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -29,10 +30,20 @@ const (
 type Store struct {
 	mu  sync.Mutex
 	dir string
+	loc *time.Location // timezone for dating todos and done files
 }
 
-// NewStore returns a Store rooted at dir (created on first write).
-func NewStore(dir string) *Store { return &Store{dir: dir} }
+// NewStore returns a Store rooted at dir (created on first write), dating
+// entries in loc (nil = UTC).
+func NewStore(dir string, loc *time.Location) *Store {
+	if loc == nil {
+		loc = time.UTC
+	}
+	return &Store{dir: dir, loc: loc}
+}
+
+// today is the current date (YYYY-MM-DD) in the store's timezone.
+func (s *Store) today() string { return time.Now().In(s.loc).Format("2006-01-02") }
 
 // Todo is a single checkbox item.
 type Todo struct {
@@ -42,23 +53,29 @@ type Todo struct {
 
 // --- file-backed operations ---
 
-func (s *Store) AddTodo(text, date string) error {
+func (s *Store) AddTodo(text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return fmt.Errorf("todo text is empty")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, err := s.archiveDoneLocked(); err != nil {
+		return err
+	}
 	content, err := s.read(todosFile)
 	if err != nil {
 		return err
 	}
-	return s.write(todosFile, addTodo(content, text, date))
+	return s.write(todosFile, addTodo(content, text, s.today()))
 }
 
 func (s *Store) ListTodos(includeDone bool) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, err := s.archiveDoneLocked(); err != nil {
+		return "", err
+	}
 	content, err := s.read(todosFile)
 	if err != nil {
 		return "", err
@@ -74,11 +91,14 @@ func (s *Store) ListTodos(includeDone bool) (string, error) {
 }
 
 // CompleteTodo removes the first open todo matching `match` from todos.md and
-// appends it (marked done) to a dated file done/<doneDate>.md, so the active
-// list stays short and readable. Returns the completed todo's text.
-func (s *Store) CompleteTodo(match, doneDate string) (string, error) {
+// appends it (marked done) to today's done file, so the active list stays short
+// and readable. Returns the completed todo's text.
+func (s *Store) CompleteTodo(match string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, err := s.archiveDoneLocked(); err != nil {
+		return "", err
+	}
 	content, err := s.read(todosFile)
 	if err != nil {
 		return "", err
@@ -90,17 +110,50 @@ func (s *Store) CompleteTodo(match, doneDate string) (string, error) {
 	if err := s.write(todosFile, newContent); err != nil {
 		return "", err
 	}
-	// Append to the daily done file (mark it done, keep the original text/comment).
-	doneName := filepath.Join(doneDir, doneDate+".md")
-	prev, err := s.read(doneName)
-	if err != nil {
-		return "", err
-	}
 	doneLine := strings.Replace(removed, "- [ ] ", "- [x] ", 1)
-	if err := s.write(doneName, appendLine(prev, doneLine)); err != nil {
+	if err := s.appendDoneLocked([]string{doneLine}); err != nil {
 		return "", err
 	}
 	return text, nil
+}
+
+// archiveDoneLocked moves any completed ("- [x]") lines out of todos.md into
+// today's done file, so items marked done by hand (not just via complete_todo)
+// don't pile up in the active list. The caller must hold s.mu. Returns the
+// number archived.
+func (s *Store) archiveDoneLocked() (int, error) {
+	content, err := s.read(todosFile)
+	if err != nil {
+		return 0, err
+	}
+	keep, done := extractDone(content)
+	if len(done) == 0 {
+		return 0, nil
+	}
+	if err := s.write(todosFile, joinLines(keep)); err != nil {
+		return 0, err
+	}
+	if err := s.appendDoneLocked(done); err != nil {
+		return 0, err
+	}
+	return len(done), nil
+}
+
+// appendDoneLocked appends completed lines to today's done/<date>.md file. The
+// caller must hold s.mu.
+func (s *Store) appendDoneLocked(lines []string) error {
+	if len(lines) == 0 {
+		return nil
+	}
+	name := filepath.Join(doneDir, s.today()+".md")
+	content, err := s.read(name)
+	if err != nil {
+		return err
+	}
+	for _, ln := range lines {
+		content = appendLine(content, strings.TrimRight(ln, " "))
+	}
+	return s.write(name, content)
 }
 
 func (s *Store) AddNote(text, timestamp string) error {
@@ -177,6 +230,29 @@ func (s *Store) recentDone(limit int) string {
 }
 
 // --- pure helpers (independently testable) ---
+
+// extractDone splits content into the lines to keep (open todos and anything
+// else) and the completed "- [x]" lines to archive.
+func extractDone(content string) (keep, done []string) {
+	for _, line := range strings.Split(content, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "- [x] ") || strings.HasPrefix(t, "- [X] ") {
+			done = append(done, line)
+		} else {
+			keep = append(keep, line)
+		}
+	}
+	return keep, done
+}
+
+// joinLines joins lines with a single trailing newline ("" stays "").
+func joinLines(lines []string) string {
+	out := strings.TrimRight(strings.Join(lines, "\n"), "\n")
+	if out != "" {
+		out += "\n"
+	}
+	return out
+}
 
 // parseTodos extracts checkbox items from markdown, ignoring other lines.
 func parseTodos(content string) []Todo {

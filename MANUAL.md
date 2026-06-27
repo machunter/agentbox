@@ -278,7 +278,19 @@ recent done via `list_todos` with `include_done`).
 
 Or run **`./agentbox.sh`** from the folder with `docker-compose.yml` for a menu
 that wraps all of this (add/show/complete todos, run a briefing, process photos,
-scheduler start/stop/logs, view the journal) — no commands to memorize.
+scheduler start/stop/logs, view the journal, **ask anything**) — no commands to
+memorize.
+
+**Asking open questions.** A one-shot task is an open RAG-backed prompt: the
+agent answers using your long-term memory plus its tools. Use the menu's "Ask
+agentbox anything", or:
+
+```sh
+docker compose exec agentbox-scheduler agentbox "what did I plan to follow up on after Seattle?"
+```
+
+Each run is independent (memory carries context across runs, but it's not a
+multi-turn conversation).
 
 ## 10. Capture from a photo
 

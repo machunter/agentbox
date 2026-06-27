@@ -216,7 +216,19 @@ docker compose exec agentbox-scheduler agentbox done "reply to yuval about the A
 
 Or skip the long commands entirely: **`./agentbox.sh`** opens a small menu
 (add/show/complete todos, run a briefing, process photos, scheduler control,
-journal) that wraps these. Run it from the folder with `docker-compose.yml`.
+journal, **ask anything**) that wraps these. Run it from the folder with
+`docker-compose.yml`.
+
+**Ask it anything.** A one-shot task *is* an open prompt backed by RAG — the
+agent answers using your long-term memory plus its tools (email, calendar,
+files, …):
+
+```sh
+docker compose exec agentbox-scheduler agentbox "what did I say I'd follow up on after Seattle?"
+```
+
+(Or the menu's "Ask agentbox anything" option.) Each run is independent; memory
+carries context across them, but it isn't a multi-turn chat.
 
 ### Capture from a photo
 

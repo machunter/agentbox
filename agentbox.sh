@@ -73,6 +73,7 @@ agentbox ▸  (scheduler: $st)
   7) Scheduler: stop
   8) Scheduler: recent logs
   9) View latest journal
+  a) Ask agentbox anything (uses memory + tools)
   v) Version (what build is running)
   q) Quit
 MENU
@@ -87,6 +88,7 @@ MENU
     7) "${DC[@]}" stop agentbox-scheduler; pause ;;
     8) "${DC[@]}" logs --tail=80 agentbox-scheduler; pause ;;
     9) show_journal; pause ;;
+    a | A) read -rp "Ask: " q; [ -n "${q:-}" ] && abx "$q"; pause ;;
     v | V) abx version; pause ;;
     q | Q) exit 0 ;;
     *) echo "Unknown option: ${choice:-}"; pause ;;

@@ -108,8 +108,8 @@ func main() {
 			fmt.Fprintln(os.Stderr, "usage: agentbox todo \"<text>\"")
 			os.Exit(2)
 		}
-		store := mcpnotes.NewStore(mcpnotes.DefaultDir())
-		if err := store.AddTodo(text, time.Now().Format("2006-01-02")); err != nil {
+		store := mcpnotes.NewStore(mcpnotes.DefaultDir(), agentTimezone())
+		if err := store.AddTodo(text); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
@@ -121,7 +121,7 @@ func main() {
 	// model or API key needed.
 	//   agentbox todos
 	if len(os.Args) > 1 && os.Args[1] == "todos" {
-		out, err := mcpnotes.NewStore(mcpnotes.DefaultDir()).ListTodos(false)
+		out, err := mcpnotes.NewStore(mcpnotes.DefaultDir(), agentTimezone()).ListTodos(false)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)

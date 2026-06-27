@@ -7,17 +7,18 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestStoreConcurrentAdds(t *testing.T) {
-	s := NewStore(t.TempDir())
+	s := NewStore(t.TempDir(), time.UTC)
 	const n = 25
 	var wg sync.WaitGroup
 	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			if err := s.AddTodo(fmt.Sprintf("todo number %d", i), ""); err != nil {
+			if err := s.AddTodo(fmt.Sprintf("todo number %d", i)); err != nil {
 				t.Errorf("AddTodo: %v", err)
 			}
 		}(i)
@@ -119,12 +120,13 @@ func TestSearchLines(t *testing.T) {
 
 func TestStoreRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	s := NewStore(dir)
+	s := NewStore(dir, time.UTC)
+	doneToday := filepath.Join(dir, "done", time.Now().UTC().Format("2006-01-02")+".md")
 
-	if err := s.AddTodo("call dentist", "2026-06-14"); err != nil {
+	if err := s.AddTodo("call dentist"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddTodo("buy milk", "2026-06-14"); err != nil {
+	if err := s.AddTodo("buy milk"); err != nil {
 		t.Fatal(err)
 	}
 	list, err := s.ListTodos(false)
@@ -135,20 +137,20 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Fatalf("list missing todos: %q", list)
 	}
 
-	if _, err := s.CompleteTodo("dentist", "2026-06-14"); err != nil {
+	if _, err := s.CompleteTodo("dentist"); err != nil {
 		t.Fatal(err)
 	}
 	open, _ := s.ListTodos(false)
 	if strings.Contains(open, "call dentist") {
 		t.Errorf("completed todo still listed as open: %q", open)
 	}
-	// The completed todo moved out of todos.md into a dated done file.
+	// The completed todo moved out of todos.md into today's dated done file.
 	if data, _ := os.ReadFile(filepath.Join(dir, "todos.md")); strings.Contains(string(data), "dentist") {
 		t.Errorf("completed todo should be gone from todos.md: %q", data)
 	}
-	doneData, err := os.ReadFile(filepath.Join(dir, "done", "2026-06-14.md"))
+	doneData, err := os.ReadFile(doneToday)
 	if err != nil || !strings.Contains(string(doneData), "call dentist") {
-		t.Errorf("completed todo not in done/2026-06-14.md (err=%v): %q", err, doneData)
+		t.Errorf("completed todo not in today's done file (err=%v): %q", err, doneData)
 	}
 	// include_done surfaces it again.
 	withDone, _ := s.ListTodos(true)
@@ -169,12 +171,43 @@ func TestStoreRoundTrip(t *testing.T) {
 }
 
 func TestListTodosEmpty(t *testing.T) {
-	s := NewStore(t.TempDir())
+	s := NewStore(t.TempDir(), time.UTC)
 	out, err := s.ListTodos(false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if out != "(no open todos)" {
 		t.Errorf("empty list = %q", out)
+	}
+}
+
+func TestArchivesHandMarkedDone(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir, time.UTC)
+	// Simulate the user hand-editing todos.md to mark items done with [x].
+	if err := os.WriteFile(filepath.Join(dir, "todos.md"),
+		[]byte("- [ ] open one\n- [x] hand-done two\n- [ ] open three\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Any todo op should sweep the [x] item out into today's done file.
+	list, err := s.ListTodos(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(list, "hand-done two") {
+		t.Errorf("hand-done item still listed as open: %q", list)
+	}
+	if !strings.Contains(list, "open one") || !strings.Contains(list, "open three") {
+		t.Errorf("open todos lost: %q", list)
+	}
+	// It's gone from todos.md and present in today's done file.
+	todosData, _ := os.ReadFile(filepath.Join(dir, "todos.md"))
+	if strings.Contains(string(todosData), "hand-done two") {
+		t.Errorf("hand-done item not removed from todos.md: %q", todosData)
+	}
+	doneData, err := os.ReadFile(filepath.Join(dir, "done", time.Now().UTC().Format("2006-01-02")+".md"))
+	if err != nil || !strings.Contains(string(doneData), "hand-done two") {
+		t.Errorf("hand-done item not archived (err=%v): %q", err, doneData)
 	}
 }

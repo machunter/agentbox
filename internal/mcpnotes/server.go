@@ -25,7 +25,7 @@ func DefaultDir() string {
 
 // Serve runs the notes MCP server over stdio, storing under dir.
 func Serve(ctx context.Context, dir string) error {
-	s := &server{store: NewStore(dir)}
+	s := &server{store: NewStore(dir, notesLoc)}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "agentbox-notes", Version: "0.1.0"}, nil)
 	s.registerTools(srv)
 	return srv.Run(ctx, &mcp.StdioTransport{})
@@ -62,7 +62,7 @@ func (s *server) registerTools(srv *mcp.Server) {
 		Name:        "add_todo",
 		Description: "Add a todo item to the user's todo list.",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in addTodoInput) (*mcp.CallToolResult, any, error) {
-		if err := s.store.AddTodo(in.Text, today()); err != nil {
+		if err := s.store.AddTodo(in.Text); err != nil {
 			return errResult(err), nil, nil
 		}
 		return textResult("added todo: " + in.Text), nil, nil
@@ -80,7 +80,7 @@ func (s *server) registerTools(srv *mcp.Server) {
 		Name:        "complete_todo",
 		Description: "Mark an open todo done by matching its text. It's moved out of the active list into a dated done file.",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in completeTodoInput) (*mcp.CallToolResult, any, error) {
-		done, err := s.store.CompleteTodo(in.Match, today())
+		done, err := s.store.CompleteTodo(in.Match)
 		if err != nil {
 			return errResult(err), nil, nil
 		}
@@ -119,7 +119,6 @@ func loadLocation() *time.Location {
 	return time.UTC
 }
 
-func today() string    { return time.Now().In(notesLoc).Format("2006-01-02") }
 func nowStamp() string { return time.Now().In(notesLoc).Format("2006-01-02 15:04") }
 
 func result(text string, err error) *mcp.CallToolResult {
