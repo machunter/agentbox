@@ -23,7 +23,14 @@ Then:
 Only read the inbox and the Sent folder. Do not list, open, or search any other
 folders or labels.
 
+4. If Slack is configured, take a quick look for anything needing my attention:
+   skim the channels most relevant to me (use list_channels to find them, then
+   read_channel for the last day), and use search_messages for recent messages
+   that mention me or ask me a direct question. File a todo for anything that
+   needs a reply. Keep it light — skip routine chatter and don't read whole
+   histories.
+
 Finish with a tight executive summary appropriate to the time of day (a few
 bullets, no preamble): what matters most now, my meetings, anything urgent in
-email, todos you created, and todos you closed. This summary is the only thing
-I'll read, so make it self-contained.
+email or Slack, todos you created, and todos you closed. This summary is the only
+thing I'll read, so make it self-contained.
