@@ -155,7 +155,7 @@ type searchInput struct {
 func (s *server) registerTools(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_upcoming_events",
-		Description: "List upcoming calendar events over the next N days (chronological), with start/end, title, location, and the user's RSVP status. Events you have not confirmed are flagged ('not yet accepted', 'tentative', or 'DECLINED'); an unflagged event is accepted or has no RSVP info — never assume attendance for a flagged one.",
+		Description: "List upcoming calendar events over the next N days (chronological), with start/end, title, location, and the user's RSVP status. Events the user has declined are omitted; ones not yet confirmed are flagged ('not yet accepted' or 'tentative') — an unflagged event is accepted or has no RSVP info. Never assume attendance for a flagged one.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in upcomingInput) (*mcp.CallToolResult, any, error) {
 		out, err := s.upcoming(ctx, daysOr(in.Days, defaultUpcomingDays), limitOr(in.Limit))
 		return textResult(out, err), nil, nil
@@ -371,6 +371,12 @@ func collectInstances(cals []*ical.Calendar, winStart, winEnd time.Time, loc *ti
 			}
 			location, _ := ev.Props.Text(ical.PropLocation)
 			rsvp := participationStatus(ev, userEmails)
+			// A declined event means the user explicitly isn't attending — drop it
+			// so it never reaches a listing or the daily summary. Tentative and
+			// not-yet-answered events are kept (the user may still go) but flagged.
+			if rsvp == "declined" {
+				continue
+			}
 
 			start, err := ev.DateTimeStart(loc)
 			if err != nil {
@@ -423,19 +429,17 @@ func normalizeEmail(s string) string {
 	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(s)), "mailto:")
 }
 
-// rsvpNote renders a short human note for a non-accepted RSVP, or "" to add no
-// annotation. Accepted and unknown ("") both render nothing, so the listing
-// stays clean and unchanged when no email is configured — only an explicitly
-// unconfirmed status is flagged.
+// rsvpNote renders a short human note for an unconfirmed RSVP, or "" to add no
+// annotation. Declined events are dropped upstream (see collectInstances), so
+// they never reach here; accepted and unknown ("") render nothing, keeping the
+// listing clean and unchanged when no email is configured.
 func rsvpNote(status string) string {
 	switch status {
-	case "declined":
-		return "DECLINED"
 	case "tentative":
 		return "tentative"
 	case "needs-action":
 		return "not yet accepted"
-	default: // "accepted" or "" (unknown)
+	default: // "accepted", "declined" (already dropped), or "" (unknown)
 		return ""
 	}
 }

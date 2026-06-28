@@ -238,16 +238,58 @@ func TestCollectInstancesSurfacesRSVP(t *testing.T) {
 
 func TestRSVPNote(t *testing.T) {
 	cases := map[string]string{
-		"declined":     "DECLINED",
 		"tentative":    "tentative",
 		"needs-action": "not yet accepted",
 		"accepted":     "", // confirmed -> no annotation
+		"declined":     "", // dropped upstream, so no note even if it reached here
 		"":             "", // unknown -> no annotation
 	}
 	for status, want := range cases {
 		if got := rsvpNote(status); got != want {
 			t.Errorf("rsvpNote(%q) = %q, want %q", status, got, want)
 		}
+	}
+}
+
+const declinedICS = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//test//test//EN
+BEGIN:VEVENT
+UID:declined@test
+DTSTART:20260620T100000Z
+DTEND:20260620T110000Z
+SUMMARY:Meeting I Declined
+ATTENDEE;CN=Me;PARTSTAT=DECLINED:mailto:me@example.com
+END:VEVENT
+BEGIN:VEVENT
+UID:accepted@test
+DTSTART:20260620T140000Z
+DTEND:20260620T150000Z
+SUMMARY:Meeting I Accepted
+ATTENDEE;CN=Me;PARTSTAT=ACCEPTED:mailto:me@example.com
+END:VEVENT
+END:VCALENDAR
+`
+
+func TestCollectInstancesDropsDeclined(t *testing.T) {
+	cal := decodeCal(t, declinedICS)
+	me := map[string]bool{"me@example.com": true}
+	insts := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 20), day(2026, 6, 21), time.UTC, me)
+
+	if len(insts) != 1 {
+		t.Fatalf("want 1 instance (declined dropped), got %d", len(insts))
+	}
+	if insts[0].Summary != "Meeting I Accepted" {
+		t.Errorf("kept the wrong event: %q", insts[0].Summary)
+	}
+	if strings.Contains(formatInstances(insts, time.UTC), "Declined") {
+		t.Error("declined event leaked into the listing")
+	}
+
+	// Without a configured email we can't detect the decline, so both remain
+	// (we never hide what we can't attribute to the user).
+	if got := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 20), day(2026, 6, 21), time.UTC, nil); len(got) != 2 {
+		t.Errorf("want 2 instances when email is unconfigured, got %d", len(got))
 	}
 }
 

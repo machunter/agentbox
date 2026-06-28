@@ -401,9 +401,11 @@ correctly. Test setup without the agent via `agentbox cal-check`.
 
 Set `AGENTBOX_CAL_EMAIL` to your own calendar address (it defaults to
 `AGENTBOX_IMAP_USER`) so the agent reads *your* RSVP status on each event. Events
-you haven't confirmed are flagged in the listing — `not yet accepted`,
-`tentative`, or `DECLINED` — so the agent doesn't treat an unanswered invite as
-one you're attending. Without an address set, events simply carry no RSVP info.
+you **declined are omitted** (they won't appear in a summary), and ones you
+haven't confirmed are flagged — `not yet accepted` or `tentative` — so the agent
+doesn't treat an unanswered invite as one you're attending. Without a matching
+address the RSVP can't be read, so every event (declined included) is shown — set
+this to the address your invites are sent to (especially on a work calendar).
 
 ### Slack (read-only)
 

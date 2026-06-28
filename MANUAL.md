@@ -209,12 +209,14 @@ docker compose run --rm --entrypoint agentbox agentbox cal-check
 Then: `make compose-run TASK="what's on my calendar this week?"`.
 
 **Set your own address so RSVP status is read correctly.** An ICS feed lists
-every event you're invited to, including ones you haven't answered. Set
-`AGENTBOX_CAL_EMAIL=you@example.com` (it defaults to `AGENTBOX_IMAP_USER`) and the
-agent reads *your* `PARTSTAT` on each event, flagging unconfirmed ones as `not yet
-accepted`, `tentative`, or `DECLINED` — so it won't tell you you're attending a
-meeting you never accepted. Comma-separate multiple addresses/aliases. Without an
-address, events carry no RSVP info (prior behavior).
+every event you're invited to, including ones you declined or haven't answered.
+Set `AGENTBOX_CAL_EMAIL=you@example.com` (it defaults to `AGENTBOX_IMAP_USER`) and
+the agent reads *your* `PARTSTAT` on each event: events you **declined are hidden**
+(so they never show up in a summary), and unconfirmed ones are flagged `not yet
+accepted` or `tentative` — so it won't tell you you're attending a meeting you
+never accepted. Comma-separate multiple addresses/aliases. **Without a matching
+address the RSVP can't be read, so every event (declined included) is shown** — in
+a work setup, make sure this is the address your invitations are sent to.
 
 ## 8. Connect Slack (read-only)
 
