@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -265,7 +266,9 @@ func TestServeUsesConfiguredTimezone(t *testing.T) {
 		t.Skipf("tzdata unavailable: %v", err)
 	}
 	cfg := &Config{Tasks: []Task{{Name: "a", Schedule: "0 8 * * *", Prompt: "p"}}}
-	var out strings.Builder
+	// Synchronized writer: Serve's background runDailyOnce goroutine writes here
+	// concurrently with the assertion below.
+	var out syncBuf
 	s := New(cfg, &out, fakeFactory(&[]string{}), nil, nil, loc)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -276,6 +279,25 @@ func TestServeUsesConfiguredTimezone(t *testing.T) {
 	if !strings.Contains(out.String(), "America/Los_Angeles") {
 		t.Errorf("startup line should report the configured timezone:\n%s", out.String())
 	}
+}
+
+// syncBuf is a goroutine-safe io.Writer for tests that read output while a
+// background goroutine may still be writing.
+type syncBuf struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuf) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 func TestBuiltinPromptByName(t *testing.T) {
@@ -321,5 +343,50 @@ func TestServeRejectsUnrunnableTask(t *testing.T) {
 	s := New(cfg, io.Discard, fakeFactory(&prompts), nil, nil, time.UTC)
 	if err := s.Serve(context.Background()); err == nil {
 		t.Error("Serve should reject a task that resolves to nothing")
+	}
+}
+
+func TestStartupCatchUpRunsOncePerDay(t *testing.T) {
+	cfg := &Config{Tasks: []Task{{Name: "brief", Schedule: "0 8 * * *", Prompt: "do it"}}}
+	path := filepath.Join(t.TempDir(), "runs.json")
+
+	var prompts []string
+	s := New(cfg, io.Discard, fakeFactory(&prompts), nil, nil, time.UTC).WithRunLog(path)
+	s.runDailyOnce(context.Background(), time.UTC) // first startup: runs
+	s.runDailyOnce(context.Background(), time.UTC) // restart same day: skips
+	if len(prompts) != 1 {
+		t.Fatalf("daily task ran %d times across two startups, want 1", len(prompts))
+	}
+
+	// A fresh scheduler reading the persisted run-log also skips (survives restart).
+	var p2 []string
+	s2 := New(cfg, io.Discard, fakeFactory(&p2), nil, nil, time.UTC).WithRunLog(path)
+	s2.runDailyOnce(context.Background(), time.UTC)
+	if len(p2) != 0 {
+		t.Fatalf("after restart the catch-up ran %d times, want 0 (already ran today)", len(p2))
+	}
+}
+
+func TestRunLog(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runs.json")
+	r := newRunLog(path)
+	if r.ranOn("brief", "2026-06-27") {
+		t.Error("fresh run-log should report not-run")
+	}
+	r.record("brief", "2026-06-27")
+	if !r.ranOn("brief", "2026-06-27") {
+		t.Error("should report run after record")
+	}
+	if r.ranOn("brief", "2026-06-28") {
+		t.Error("different date should report not-run")
+	}
+	if !newRunLog(path).ranOn("brief", "2026-06-27") { // persisted
+		t.Error("run-log should persist across instances")
+	}
+	// nil/empty are safe no-ops.
+	var nr *runLog
+	nr.record("x", "2026-06-27")
+	if nr.ranOn("x", "2026-06-27") {
+		t.Error("nil run-log should report not-run")
 	}
 }

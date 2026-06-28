@@ -278,6 +278,11 @@ func runScheduler(mode string, args []string) {
 	tz := agentTimezone()
 	jnl := journal.New(journalDir(), tz)
 	sched := schedule.New(cfg, os.Stdout, factory, commands, jnl, tz).WithPrompts(promptResolver())
+	// Persist per-task last-run dates so the startup catch-up runs a daily task
+	// at most once a day, even across repeated container restarts.
+	if dir := os.Getenv("AGENTBOX_MEMORY_DIR"); dir != "" {
+		sched = sched.WithRunLog(filepath.Join(dir, "scheduler-runs.json"))
+	}
 
 	switch mode {
 	case "serve":

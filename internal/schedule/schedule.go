@@ -121,6 +121,24 @@ type Scheduler struct {
 	prompts  PromptFunc       // resolves a built-in prompt by task name (nil = none)
 	journal  *journal.Journal // nil = no daily-output file
 	loc      *time.Location   // timezone cron schedules are interpreted in (nil = time.Local)
+	runs     *runLog          // per-task last-run dates; gates the startup catch-up
+}
+
+// WithRunLog enables the once-a-day startup-catch-up guard, persisting per-task
+// last-run dates to path so restarts don't re-fire daily tasks. Returns the
+// scheduler for chaining.
+func (s *Scheduler) WithRunLog(path string) *Scheduler {
+	s.runs = newRunLog(path)
+	return s
+}
+
+// todayStr is the current date (YYYY-MM-DD) in the scheduler's timezone.
+func (s *Scheduler) todayStr() string {
+	loc := s.loc
+	if loc == nil {
+		loc = time.Local
+	}
+	return time.Now().In(loc).Format("2006-01-02")
 }
 
 // WithPrompts registers a resolver for built-in prompts so a task can be
@@ -237,12 +255,22 @@ func (s *Scheduler) runDailyOnce(ctx context.Context, loc *time.Location) {
 			prompts = append(prompts, t)
 		}
 	}
-	daily := append(cmds, prompts...)
-	if len(daily) == 0 {
+	// Skip tasks that already ran today (a prior startup or a cron fire), so
+	// repeated restarts don't re-fire the same daily briefing each time.
+	today := from.Format("2006-01-02")
+	var due []Task
+	for _, t := range append(cmds, prompts...) {
+		if s.runs.ranOn(t.Name, today) {
+			fmt.Fprintf(s.out, "scheduler: %q already ran today; skipping startup run\n", t.Name)
+			continue
+		}
+		due = append(due, t)
+	}
+	if len(due) == 0 {
 		return
 	}
-	fmt.Fprintf(s.out, "scheduler: running %d daily task(s) once at startup\n", len(daily))
-	for _, t := range daily {
+	fmt.Fprintf(s.out, "scheduler: running %d daily task(s) once at startup\n", len(due))
+	for _, t := range due {
 		if ctx.Err() != nil {
 			return
 		}
@@ -284,6 +312,10 @@ func (s *Scheduler) RunOnce(ctx context.Context, name string) error {
 // propagated: a scheduler shouldn't die because one run failed.
 func (s *Scheduler) runTask(ctx context.Context, t Task) {
 	fmt.Fprintf(s.out, "\n[%s] task %q: starting\n", now(), t.Name)
+
+	// Mark the task as run today (cron or startup), so the startup catch-up
+	// won't re-fire it on a later restart the same day.
+	defer s.runs.record(t.Name, s.todayStr())
 
 	runCtx, cancel := context.WithTimeout(ctx, taskTimeout)
 	defer cancel()
