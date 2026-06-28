@@ -88,11 +88,7 @@ func main() {
 	// Internal subcommand: run as the notes/todo MCP server over stdio. Stores
 	// local markdown files; no API key needed.
 	if len(os.Args) > 1 && os.Args[1] == "mcp-notes" {
-		dir := mcpnotes.DefaultDir()
-		if len(os.Args) > 2 {
-			dir = os.Args[2]
-		}
-		if err := mcpnotes.Serve(context.Background(), dir); err != nil {
+		if err := mcpnotes.Serve(context.Background(), mcpnotes.DefaultTodosDir(), mcpnotes.DefaultNotesDir()); err != nil {
 			fmt.Fprintln(os.Stderr, "mcp-notes:", err)
 			os.Exit(1)
 		}
@@ -108,7 +104,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "usage: agentbox todo \"<text>\"")
 			os.Exit(2)
 		}
-		store := mcpnotes.NewStore(mcpnotes.DefaultDir(), agentTimezone())
+		store := mcpnotes.NewStore(mcpnotes.DefaultTodosDir(), mcpnotes.DefaultNotesDir(), agentTimezone())
 		if err := store.AddTodo(text); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
@@ -121,7 +117,7 @@ func main() {
 	// model or API key needed.
 	//   agentbox todos
 	if len(os.Args) > 1 && os.Args[1] == "todos" {
-		out, err := mcpnotes.NewStore(mcpnotes.DefaultDir(), agentTimezone()).ListTodos(false)
+		out, err := mcpnotes.NewStore(mcpnotes.DefaultTodosDir(), mcpnotes.DefaultNotesDir(), agentTimezone()).ListTodos(false)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)

@@ -9,23 +9,30 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// DefaultDir returns the notes directory: AGENTBOX_NOTES_DIR if set, otherwise
-// a "notes" folder under the working directory (which is the mounted workspace
-// in the container, so the files are visible/editable/syncable).
-func DefaultDir() string {
-	if d := os.Getenv("AGENTBOX_NOTES_DIR"); d != "" {
+// DefaultTodosDir returns where todos live: AGENTBOX_TODOS_DIR if set, else a
+// "todos" folder under the working directory (the mounted workspace in the
+// container, so the files are visible/editable/syncable).
+func DefaultTodosDir() string { return dirOrUnder("AGENTBOX_TODOS_DIR", "todos") }
+
+// DefaultNotesDir returns where free-form notes live: AGENTBOX_NOTES_DIR if set,
+// else a "notes" folder under the working directory.
+func DefaultNotesDir() string { return dirOrUnder("AGENTBOX_NOTES_DIR", "notes") }
+
+func dirOrUnder(env, sub string) string {
+	if d := os.Getenv(env); d != "" {
 		return d
 	}
 	wd, err := os.Getwd()
 	if err != nil {
 		wd = "."
 	}
-	return filepath.Join(wd, "notes")
+	return filepath.Join(wd, sub)
 }
 
-// Serve runs the notes MCP server over stdio, storing under dir.
-func Serve(ctx context.Context, dir string) error {
-	s := &server{store: NewStore(dir, notesLoc)}
+// Serve runs the notes MCP server over stdio, storing todos under todosDir and
+// notes under notesDir.
+func Serve(ctx context.Context, todosDir, notesDir string) error {
+	s := &server{store: NewStore(todosDir, notesDir, notesLoc)}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "agentbox-notes", Version: "0.1.0"}, nil)
 	s.registerTools(srv)
 	return srv.Run(ctx, &mcp.StdioTransport{})

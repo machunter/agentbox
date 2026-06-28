@@ -23,23 +23,25 @@ const (
 	doneDir   = "done" // completed todos move here, one file per day (done/<date>.md)
 )
 
-// Store reads and writes the markdown todo/note files under a directory. The
-// mutex serializes read-modify-write operations, since the agent may invoke
-// several notes tools concurrently (Claude can emit parallel tool calls) and
-// they all reach this one process.
+// Store reads and writes the markdown todo/note files. Todos (todos.md + done/)
+// live in todosDir; free-form notes (inbox.md) live in notesDir — separate so
+// the folder names are self-explanatory. The mutex serializes read-modify-write
+// operations, since the agent may invoke several notes tools concurrently
+// (Claude can emit parallel tool calls) and they all reach this one process.
 type Store struct {
-	mu  sync.Mutex
-	dir string
-	loc *time.Location // timezone for dating todos and done files
+	mu       sync.Mutex
+	todosDir string
+	notesDir string
+	loc      *time.Location // timezone for dating todos and done files
 }
 
-// NewStore returns a Store rooted at dir (created on first write), dating
-// entries in loc (nil = UTC).
-func NewStore(dir string, loc *time.Location) *Store {
+// NewStore returns a Store with todos under todosDir and notes under notesDir
+// (created on first write), dating entries in loc (nil = UTC).
+func NewStore(todosDir, notesDir string, loc *time.Location) *Store {
 	if loc == nil {
 		loc = time.UTC
 	}
-	return &Store{dir: dir, loc: loc}
+	return &Store{todosDir: todosDir, notesDir: notesDir, loc: loc}
 }
 
 // today is the current date (YYYY-MM-DD) in the store's timezone.
@@ -63,11 +65,11 @@ func (s *Store) AddTodo(text string) error {
 	if _, err := s.archiveDoneLocked(); err != nil {
 		return err
 	}
-	content, err := s.read(todosFile)
+	content, err := s.read(s.todosDir, todosFile)
 	if err != nil {
 		return err
 	}
-	return s.write(todosFile, addTodo(content, text, s.today()))
+	return s.write(s.todosDir, todosFile, addTodo(content, text, s.today()))
 }
 
 func (s *Store) ListTodos(includeDone bool) (string, error) {
@@ -76,7 +78,7 @@ func (s *Store) ListTodos(includeDone bool) (string, error) {
 	if _, err := s.archiveDoneLocked(); err != nil {
 		return "", err
 	}
-	content, err := s.read(todosFile)
+	content, err := s.read(s.todosDir, todosFile)
 	if err != nil {
 		return "", err
 	}
@@ -99,7 +101,7 @@ func (s *Store) CompleteTodo(match string) (string, error) {
 	if _, err := s.archiveDoneLocked(); err != nil {
 		return "", err
 	}
-	content, err := s.read(todosFile)
+	content, err := s.read(s.todosDir, todosFile)
 	if err != nil {
 		return "", err
 	}
@@ -107,7 +109,7 @@ func (s *Store) CompleteTodo(match string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := s.write(todosFile, newContent); err != nil {
+	if err := s.write(s.todosDir, todosFile, newContent); err != nil {
 		return "", err
 	}
 	doneLine := strings.Replace(removed, "- [ ] ", "- [x] ", 1)
@@ -122,7 +124,7 @@ func (s *Store) CompleteTodo(match string) (string, error) {
 // don't pile up in the active list. The caller must hold s.mu. Returns the
 // number archived.
 func (s *Store) archiveDoneLocked() (int, error) {
-	content, err := s.read(todosFile)
+	content, err := s.read(s.todosDir, todosFile)
 	if err != nil {
 		return 0, err
 	}
@@ -130,7 +132,7 @@ func (s *Store) archiveDoneLocked() (int, error) {
 	if len(done) == 0 {
 		return 0, nil
 	}
-	if err := s.write(todosFile, joinLines(keep)); err != nil {
+	if err := s.write(s.todosDir, todosFile, joinLines(keep)); err != nil {
 		return 0, err
 	}
 	if err := s.appendDoneLocked(done); err != nil {
@@ -146,14 +148,14 @@ func (s *Store) appendDoneLocked(lines []string) error {
 		return nil
 	}
 	name := filepath.Join(doneDir, s.today()+".md")
-	content, err := s.read(name)
+	content, err := s.read(s.todosDir, name)
 	if err != nil {
 		return err
 	}
 	for _, ln := range lines {
 		content = appendLine(content, strings.TrimRight(ln, " "))
 	}
-	return s.write(name, content)
+	return s.write(s.todosDir, name, content)
 }
 
 func (s *Store) AddNote(text, timestamp string) error {
@@ -163,11 +165,11 @@ func (s *Store) AddNote(text, timestamp string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	content, err := s.read(notesFile)
+	content, err := s.read(s.notesDir, notesFile)
 	if err != nil {
 		return err
 	}
-	return s.write(notesFile, addNote(content, text, timestamp))
+	return s.write(s.notesDir, notesFile, addNote(content, text, timestamp))
 }
 
 func (s *Store) SearchNotes(query string) (string, error) {
@@ -176,7 +178,7 @@ func (s *Store) SearchNotes(query string) (string, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	content, err := s.read(notesFile)
+	content, err := s.read(s.notesDir, notesFile)
 	if err != nil {
 		return "", err
 	}
@@ -187,8 +189,8 @@ func (s *Store) SearchNotes(query string) (string, error) {
 	return strings.Join(matches, "\n"), nil
 }
 
-func (s *Store) read(name string) (string, error) {
-	b, err := os.ReadFile(filepath.Join(s.dir, name))
+func (s *Store) read(dir, name string) (string, error) {
+	b, err := os.ReadFile(filepath.Join(dir, name))
 	if os.IsNotExist(err) {
 		return "", nil
 	}
@@ -198,10 +200,10 @@ func (s *Store) read(name string) (string, error) {
 	return string(b), nil
 }
 
-func (s *Store) write(name, content string) error {
-	full := filepath.Join(s.dir, name)
+func (s *Store) write(dir, name, content string) error {
+	full := filepath.Join(dir, name)
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		return fmt.Errorf("create notes dir: %w", err)
+		return fmt.Errorf("create dir: %w", err)
 	}
 	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", name, err)
@@ -212,7 +214,7 @@ func (s *Store) write(name, content string) error {
 // recentDone returns the contents of the most recent done files (up to limit),
 // oldest first, for the optional "completed" section of ListTodos.
 func (s *Store) recentDone(limit int) string {
-	matches, _ := filepath.Glob(filepath.Join(s.dir, doneDir, "*.md"))
+	matches, _ := filepath.Glob(filepath.Join(s.todosDir, doneDir, "*.md"))
 	sort.Strings(matches) // filenames are dates, so this is chronological
 	if len(matches) > limit {
 		matches = matches[len(matches)-limit:]

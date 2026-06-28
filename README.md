@@ -188,9 +188,10 @@ memory.
 
 ## Todos & notes
 
-agentbox keeps your todos and notes as plain markdown (`todos.md`, `inbox.md`) in
-a notes directory (`AGENTBOX_NOTES_DIR`, default `notes/` under the workspace).
-Just ask the agent in any run and it files them:
+agentbox keeps your todos and notes as plain markdown in two folders under the
+workspace: **`todos/`** (`todos.md` + a dated `done/` archive;
+`AGENTBOX_TODOS_DIR`) and **`notes/`** (`inbox.md` for free-form notes;
+`AGENTBOX_NOTES_DIR`). Just ask the agent in any run and it files them:
 
 ```sh
 make compose-run TASK="add a todo to call the dentist, and note that I want to batch the briefings"
@@ -198,10 +199,10 @@ make compose-run TASK="what's on my todo list? mark the dentist one done."
 ```
 
 Completing a todo (via `done`, the agent, or the menu) **moves** it out of
-`todos.md` into a dated `done/<date>.md` file, so the active list stays short and
-readable while finished work is archived by day. They're plain files, so you can
-also edit them directly, and a synced folder (iCloud/Dropbox) mounted as the
-notes dir lets you capture from your phone. Timestamps follow `AGENTBOX_TIMEZONE`.
+`todos.md` into a dated `todos/done/<date>.md` file, so the active list stays
+short and readable while finished work is archived by day. They're plain files,
+so you can also edit them directly (hand-marking `- [x]` archives on the next
+todo op). Timestamps follow `AGENTBOX_TIMEZONE`.
 
 From the CLI: `agentbox todo` adds one (deterministic, no API key needed),
 `agentbox todos` lists open ones, and `agentbox done` completes one — the model
@@ -344,7 +345,8 @@ the morning briefing, what it captured, and so on. Location is
 | `AGENTBOX_SCHEDULE` | — | Path to the schedule YAML (required for `serve` / `run-task`). |
 | `AGENTBOX_MAX_TOOL_CALLS` | `50` | Max tool-call rounds before a run is stopped (then it's asked to summarize). Raise for busy work mailboxes. |
 | `AGENTBOX_DEBUG` | off | Set to `1` for verbose debug logging to stderr. |
-| `AGENTBOX_NOTES_DIR` | `notes/` (under workspace) | Where todos.md / inbox.md live. |
+| `AGENTBOX_TODOS_DIR` | `todos/` (under workspace) | Where `todos.md` + `done/` live. |
+| `AGENTBOX_NOTES_DIR` | `notes/` (under workspace) | Where `inbox.md` (free-form notes) lives. |
 | `AGENTBOX_CAPTURE_DIR` | `captures/` (under workspace) | Capture inbox the agent reads photos from. |
 | `AGENTBOX_CAPTURE_HOST` | `./captures` | Host folder mounted as the capture inbox (point at a synced folder). |
 | `AGENTBOX_JOURNAL_DIR` / `AGENTBOX_JOURNAL_HOST` | `journal/` | Daily-output markdown files (one per day) / host mount. |

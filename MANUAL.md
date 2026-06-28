@@ -263,8 +263,9 @@ for it (otherwise it can't tell which messages are mentions of you).
 
 ## 9. Todos & notes
 
-agentbox keeps your todos and notes as plain markdown (`todos.md`, `inbox.md`)
-in a notes folder (default `notes/` under the workspace). Just ask:
+agentbox keeps these as plain markdown in two folders under the workspace:
+`todos/` (`todos.md` + a dated `done/` archive) and `notes/` (`inbox.md` for
+free-form notes). Just ask:
 
 ```sh
 make compose-run TASK="add a todo to call the dentist and note that I want to batch the briefings"
@@ -539,7 +540,8 @@ container path.
 | `AGENTBOX_SLACK_LOOKBACK_DAYS` | Default `read_channel` history lookback (days); `0`/unset = count-based only. |
 | `AGENTBOX_SLACK_TIMEOUT` | Seconds for a single Slack API request (default 30). |
 | `AGENTBOX_TIMEZONE` | Timezone for day boundaries and cron (e.g. `America/Los_Angeles`). |
-| `AGENTBOX_NOTES_DIR` | Where `todos.md` / `inbox.md` live. |
+| `AGENTBOX_TODOS_DIR` | Where `todos.md` + `done/` live (default `todos/`). |
+| `AGENTBOX_NOTES_DIR` | Where `inbox.md` (free-form notes) lives (default `notes/`). |
 | `AGENTBOX_CAPTURE_DIR` / `AGENTBOX_CAPTURE_HOST` | Capture inbox (container path / host folder). |
 | `AGENTBOX_SCHEDULE` / `AGENTBOX_SCHEDULE_FILE` | Schedule YAML path (in-container / host). |
 | `AGENTBOX_MAX_TOOL_CALLS` | Max tool-call rounds per run before it stops and summarizes (default 50). Raise for busy work mailboxes. |

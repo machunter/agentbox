@@ -11,7 +11,7 @@ import (
 )
 
 func TestStoreConcurrentAdds(t *testing.T) {
-	s := NewStore(t.TempDir(), time.UTC)
+	s := NewStore(t.TempDir(), t.TempDir(), time.UTC)
 	const n = 25
 	var wg sync.WaitGroup
 	for i := range n {
@@ -120,7 +120,7 @@ func TestSearchLines(t *testing.T) {
 
 func TestStoreRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	s := NewStore(dir, time.UTC)
+	s := NewStore(dir, dir, time.UTC)
 	doneToday := filepath.Join(dir, "done", time.Now().UTC().Format("2006-01-02")+".md")
 
 	if err := s.AddTodo("call dentist"); err != nil {
@@ -171,7 +171,7 @@ func TestStoreRoundTrip(t *testing.T) {
 }
 
 func TestListTodosEmpty(t *testing.T) {
-	s := NewStore(t.TempDir(), time.UTC)
+	s := NewStore(t.TempDir(), t.TempDir(), time.UTC)
 	out, err := s.ListTodos(false)
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +183,7 @@ func TestListTodosEmpty(t *testing.T) {
 
 func TestArchivesHandMarkedDone(t *testing.T) {
 	dir := t.TempDir()
-	s := NewStore(dir, time.UTC)
+	s := NewStore(dir, dir, time.UTC)
 	// Simulate the user hand-editing todos.md to mark items done with [x].
 	if err := os.WriteFile(filepath.Join(dir, "todos.md"),
 		[]byte("- [ ] open one\n- [x] hand-done two\n- [ ] open three\n"), 0o644); err != nil {
@@ -209,5 +209,33 @@ func TestArchivesHandMarkedDone(t *testing.T) {
 	doneData, err := os.ReadFile(filepath.Join(dir, "done", time.Now().UTC().Format("2006-01-02")+".md"))
 	if err != nil || !strings.Contains(string(doneData), "hand-done two") {
 		t.Errorf("hand-done item not archived (err=%v): %q", err, doneData)
+	}
+}
+
+func TestTodosAndNotesUseSeparateDirs(t *testing.T) {
+	todosDir := t.TempDir()
+	notesDir := t.TempDir()
+	s := NewStore(todosDir, notesDir, time.UTC)
+
+	if err := s.AddTodo("call dentist"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddNote("idea about caching", "2026-06-28 09:00"); err != nil {
+		t.Fatal(err)
+	}
+
+	// todos.md lands in todosDir, not notesDir.
+	if _, err := os.Stat(filepath.Join(todosDir, "todos.md")); err != nil {
+		t.Errorf("todos.md not in todosDir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(notesDir, "todos.md")); !os.IsNotExist(err) {
+		t.Errorf("todos.md should not be in notesDir")
+	}
+	// inbox.md lands in notesDir, not todosDir.
+	if _, err := os.Stat(filepath.Join(notesDir, "inbox.md")); err != nil {
+		t.Errorf("inbox.md not in notesDir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(todosDir, "inbox.md")); !os.IsNotExist(err) {
+		t.Errorf("inbox.md should not be in todosDir")
 	}
 }
