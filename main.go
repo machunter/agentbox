@@ -106,9 +106,14 @@ func main() {
 			os.Exit(2)
 		}
 		store := mcpnotes.NewStore(mcpnotes.DefaultTodosDir(), mcpnotes.DefaultNotesDir(), agentTimezone())
-		if err := store.AddTodo(text); err != nil {
+		added, dup, err := store.AddTodo(text)
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
+		}
+		if !added {
+			fmt.Printf("skipped — near-duplicate of: %s\n", dup)
+			return
 		}
 		fmt.Println("added todo:", text)
 		return

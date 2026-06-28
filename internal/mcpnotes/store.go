@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 const (
@@ -55,21 +56,32 @@ type Todo struct {
 
 // --- file-backed operations ---
 
-func (s *Store) AddTodo(text string) error {
+// AddTodo appends a new open todo. If an existing open todo is a near-duplicate
+// (see similarTodo), it writes nothing and returns added=false with dup set to
+// the existing todo's text, so the caller can report the conflict instead of
+// creating a repeat. This guards against the same item arriving from two sources
+// (e.g. an email update and a Slack mention of the same thread).
+func (s *Store) AddTodo(text string) (added bool, dup string, err error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return fmt.Errorf("todo text is empty")
+		return false, "", fmt.Errorf("todo text is empty")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, err := s.archiveDoneLocked(); err != nil {
-		return err
+		return false, "", err
 	}
 	content, err := s.read(s.todosDir, todosFile)
 	if err != nil {
-		return err
+		return false, "", err
 	}
-	return s.write(s.todosDir, todosFile, addTodo(content, text, s.today()))
+	if existing := similarTodo(parseTodos(content), text); existing != "" {
+		return false, existing, nil
+	}
+	if err := s.write(s.todosDir, todosFile, addTodo(content, text, s.today())); err != nil {
+		return false, "", err
+	}
+	return true, "", nil
 }
 
 func (s *Store) ListTodos(includeDone bool) (string, error) {
@@ -269,6 +281,92 @@ func parseTodos(content string) []Todo {
 		}
 	}
 	return todos
+}
+
+// dupThreshold is the token-overlap fraction above which a new todo is treated
+// as a near-duplicate of an existing open one. Deliberately high: dedup must not
+// silently drop genuinely distinct todos, so it fires only on strong overlap.
+const dupThreshold = 0.8
+
+// todoStopwords are low-signal words ignored when comparing todos, so overlap
+// reflects the actual subject (people, topics) rather than filler.
+var todoStopwords = map[string]bool{
+	"the": true, "a": true, "an": true, "to": true, "and": true, "or": true,
+	"of": true, "for": true, "with": true, "about": true, "re": true, "in": true,
+	"on": true, "at": true, "is": true, "are": true, "be": true, "regarding": true,
+	"our": true, "my": true, "from": true, "this": true, "that": true,
+}
+
+// todoTokens normalizes a todo's text into a set of content tokens for
+// comparison: it drops the trailing <!-- date --> marker, lowercases, splits on
+// non-alphanumerics, and removes stopwords and single characters.
+func todoTokens(text string) map[string]bool {
+	if i := strings.Index(text, "<!--"); i >= 0 {
+		text = text[:i]
+	}
+	set := map[string]bool{}
+	for _, tok := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if todoStopwords[tok] {
+			continue
+		}
+		// Drop single *letters* (low signal), but keep numbers — a lone digit
+		// can be what distinguishes two otherwise-identical items.
+		if len(tok) <= 1 && !isNumeric(tok) {
+			continue
+		}
+		set[tok] = true
+	}
+	return set
+}
+
+// isNumeric reports whether tok is all digits.
+func isNumeric(tok string) bool {
+	for _, r := range tok {
+		if !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return tok != ""
+}
+
+// containment returns the fraction of a's tokens that also appear in b.
+func containment(a, b map[string]bool) float64 {
+	if len(a) == 0 {
+		return 0
+	}
+	hit := 0
+	for t := range a {
+		if b[t] {
+			hit++
+		}
+	}
+	return float64(hit) / float64(len(a))
+}
+
+// similarTodo returns the text of an open todo that is a near-duplicate of
+// candidate, or "" if none. It matches when either todo's content tokens are
+// mostly contained in the other's, so a shorter rephrase of a longer item still
+// counts — while the high threshold keeps distinct todos from being dropped.
+func similarTodo(todos []Todo, candidate string) string {
+	cand := todoTokens(candidate)
+	if len(cand) == 0 {
+		return ""
+	}
+	for _, t := range todos {
+		if t.Done {
+			continue
+		}
+		ex := todoTokens(t.Text)
+		if len(ex) == 0 {
+			continue
+		}
+		if containment(cand, ex) >= dupThreshold || containment(ex, cand) >= dupThreshold {
+			return t.Text
+		}
+	}
+	return ""
 }
 
 func addTodo(content, text, date string) string {

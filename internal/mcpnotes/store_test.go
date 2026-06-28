@@ -18,7 +18,7 @@ func TestStoreConcurrentAdds(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			if err := s.AddTodo(fmt.Sprintf("todo number %d", i)); err != nil {
+			if _, _, err := s.AddTodo(fmt.Sprintf("todo number %d", i)); err != nil {
 				t.Errorf("AddTodo: %v", err)
 			}
 		}(i)
@@ -68,6 +68,59 @@ func TestAddTodo(t *testing.T) {
 	todos := parseTodos(out)
 	if len(todos) != 2 {
 		t.Fatalf("want 2 todos after second add, got %d", len(todos))
+	}
+}
+
+func TestSimilarTodo(t *testing.T) {
+	open := []Todo{
+		{Text: "Send finalized data labeling deck to Casey  <!-- 2026-06-26 -->"},
+		{Text: "Connect with Karley Nakamura about travel and hotel for the July offsite"},
+		{Text: "Pay SP SEEKING HEALTH and submit receipt", Done: true}, // completed: ignored
+	}
+
+	// A re-worded restatement of an existing open todo is caught (the date
+	// marker and filler words are ignored).
+	if got := similarTodo(open, "send the finalized data-labeling deck to Casey"); got == "" {
+		t.Error("expected the Casey deck restatement to match an existing todo")
+	}
+	// A distinct todo is not flagged.
+	if got := similarTodo(open, "review Asim's profile and sign an NDA"); got != "" {
+		t.Errorf("distinct todo wrongly matched %q", got)
+	}
+	// Overlap with a completed todo doesn't count (only open todos dedup).
+	if got := similarTodo(open, "Pay SP SEEKING HEALTH and submit receipt"); got != "" {
+		t.Errorf("should not match a completed todo, got %q", got)
+	}
+}
+
+func TestAddTodoSkipsNearDuplicate(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir, dir, time.UTC)
+
+	added, _, err := s.AddTodo("Confirm ground truth dataset with Gimou for the accuracy report")
+	if err != nil || !added {
+		t.Fatalf("first add: added=%v err=%v", added, err)
+	}
+	// A near-duplicate (reworded) is skipped and reports the existing todo.
+	added, dup, err := s.AddTodo("confirm the ground-truth dataset with Gimou for accuracy report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added {
+		t.Error("near-duplicate should not have been added")
+	}
+	if dup == "" {
+		t.Error("skip should report the conflicting todo's text")
+	}
+	// A genuinely different todo still adds.
+	added, _, err = s.AddTodo("Organize a demo of Kanu with Karan")
+	if err != nil || !added {
+		t.Fatalf("distinct add: added=%v err=%v", added, err)
+	}
+
+	list, _ := s.ListTodos(false)
+	if got := strings.Count(list, "- [ ] "); got != 2 {
+		t.Fatalf("want 2 open todos (dup skipped), got %d:\n%s", got, list)
 	}
 }
 
@@ -123,10 +176,10 @@ func TestStoreRoundTrip(t *testing.T) {
 	s := NewStore(dir, dir, time.UTC)
 	doneToday := filepath.Join(dir, "done", time.Now().UTC().Format("2006-01-02")+".md")
 
-	if err := s.AddTodo("call dentist"); err != nil {
+	if _, _, err := s.AddTodo("call dentist"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddTodo("buy milk"); err != nil {
+	if _, _, err := s.AddTodo("buy milk"); err != nil {
 		t.Fatal(err)
 	}
 	list, err := s.ListTodos(false)
@@ -217,7 +270,7 @@ func TestTodosAndNotesUseSeparateDirs(t *testing.T) {
 	notesDir := t.TempDir()
 	s := NewStore(todosDir, notesDir, time.UTC)
 
-	if err := s.AddTodo("call dentist"); err != nil {
+	if _, _, err := s.AddTodo("call dentist"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddNote("idea about caching", "2026-06-28 09:00"); err != nil {

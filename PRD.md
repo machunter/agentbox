@@ -64,7 +64,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | `run_bash` tool | ✅ | Shell in the container; 60s per-command timeout |
 | Long-term memory (recall across runs) | ✅ | Auto-recall (`preloadmemorytool`) + on-demand (`loadmemorytool`); persisted after each run |
 | Filesystem tools (`list_directory`, `read_file`, `search_files`) | ✅ | MCP server jailed to `/workspace` |
-| Todos & notes (`add_todo`, `list_todos`, `complete_todo`, `add_note`, `search_notes`) | ✅ | Local markdown store; always on; validated live |
+| Todos & notes (`add_todo`, `list_todos`, `complete_todo`, `add_note`, `search_notes`) | ✅ | Local markdown store; always on; validated live. `add_todo` deterministically skips near-duplicates (token-overlap guard in `internal/mcpnotes`), so the same item arriving from two sources (email + Slack) won't create a repeat. A filing rubric in the agent prompt does the judgment the code can't: skip spam/cold-outreach and below-the-owner's-role admin tasks, prefer a note when unsure (owner operates at CTO level) |
 | Photo capture (vision) of todos/notes | ✅ | Drop a photo in the capture inbox; Claude vision reads it and files items, then the image is deleted (failures kept in `failed/`); schedulable. Validated live |
 | Voice capture of todos/notes | 🔵 | Same inbox, audio → text needs a local Whisper model (no cloud STT); v2 |
 | Multimodal agent input (images) | ✅ | `RunWithImage`; adapter sends inline image as a vision block |

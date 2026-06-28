@@ -2,6 +2,7 @@ package mcpnotes
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -67,10 +68,14 @@ type searchNotesInput struct {
 func (s *server) registerTools(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "add_todo",
-		Description: "Add a todo item to the user's todo list.",
+		Description: "Add a todo item to the user's todo list. Near-duplicates of an existing open todo are skipped (the response says so) — so re-filing the same item from another source won't create a repeat.",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in addTodoInput) (*mcp.CallToolResult, any, error) {
-		if err := s.store.AddTodo(in.Text); err != nil {
+		added, dup, err := s.store.AddTodo(in.Text)
+		if err != nil {
 			return errResult(err), nil, nil
+		}
+		if !added {
+			return textResult(fmt.Sprintf("skipped — near-duplicate of an existing todo: %q", dup)), nil, nil
 		}
 		return textResult("added todo: " + in.Text), nil, nil
 	})
