@@ -389,6 +389,13 @@ assistant's "delivery" without email/push. Read today's file to catch the
 morning briefing etc. Set the location with `AGENTBOX_JOURNAL_DIR` (host mount
 `AGENTBOX_JOURNAL_HOST` in compose).
 
+**Email delivery (optional).** Set `AGENTBOX_SMTP_HOST` (e.g. `smtp.gmail.com`,
+port 587) and each digest is also emailed to you. It reuses your IMAP
+user/password — the same Gmail/Workspace app password authorizes SMTP — and
+sends to yourself (`AGENTBOX_IMAP_USER`, or `AGENTBOX_DELIVER_EMAIL` if set; a
+**personal** address keeps work infra out of it). Self-addressed only — it can't
+send to anyone else.
+
 ## 12. Personal vs work
 
 Run agentbox separately on each machine and isolate their memory with
@@ -530,6 +537,8 @@ container path.
 | `AGENTBOX_EMBED_MODEL` / `AGENTBOX_OLLAMA_URL` | Embedding model / Ollama URL. |
 | `AGENTBOX_IMAP_HOST` / `_PORT` / `_USER` / `_PASS` | Email (read-only); app password. |
 | `AGENTBOX_EMAIL_SINCE_DAYS` | Minimum lookback window (days) for email tools; the agent can widen but not narrow it; 0/unset = no date limit. |
+| `AGENTBOX_SMTP_HOST` / `AGENTBOX_SMTP_PORT` | SMTP host (e.g. `smtp.gmail.com`) / port (default 587); set the host to email digests to yourself. |
+| `AGENTBOX_DELIVER_EMAIL` | Recipient for emailed digests (default = your IMAP address). |
 | `AGENTBOX_MAIL_STATE_DIR` | Where `list_new_emails` stores per-mailbox UID watermarks (default: the memory dir). |
 | `AGENTBOX_ICS_URLS` | Calendar ICS feed URLs (comma-separated). |
 | `AGENTBOX_CAL_EMAIL` | Your own calendar address(es) (comma-separated); enables per-event RSVP status. Defaults to `AGENTBOX_IMAP_USER`. |

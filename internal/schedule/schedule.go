@@ -112,6 +112,12 @@ type CommandFunc func(ctx context.Context, out io.Writer) (digest string, err er
 // traces), used to record a clean entry in the daily journal.
 type Answerer interface{ Answer() string }
 
+// Deliverer sends a task's output to an external channel (e.g. email to self),
+// in addition to the journal. nil disables delivery.
+type Deliverer interface {
+	Deliver(subject, body string) error
+}
+
 // Scheduler runs configured tasks on their cron schedules.
 type Scheduler struct {
 	cfg      *Config
@@ -122,6 +128,14 @@ type Scheduler struct {
 	journal  *journal.Journal // nil = no daily-output file
 	loc      *time.Location   // timezone cron schedules are interpreted in (nil = time.Local)
 	runs     *runLog          // per-task last-run dates; gates the startup catch-up
+	mailer   Deliverer        // nil = no email delivery
+}
+
+// WithMailer enables emailing each task's recorded output (the same digest that
+// goes to the journal). Returns the scheduler for chaining.
+func (s *Scheduler) WithMailer(d Deliverer) *Scheduler {
+	s.mailer = d
+	return s
 }
 
 // WithRunLog enables the once-a-day startup-catch-up guard, persisting per-task
@@ -181,13 +195,18 @@ func New(cfg *Config, out io.Writer, factory Factory, commands map[string]Comman
 	return &Scheduler{cfg: cfg, out: out, factory: factory, commands: commands, journal: jnl, loc: loc}
 }
 
-// record appends a task's output to the daily journal, if one is configured.
+// record appends a task's output to the daily journal and, if email delivery is
+// configured, sends the same digest to the user. Both are best-effort.
 func (s *Scheduler) record(name, body string) {
-	if s.journal == nil {
-		return
+	if s.journal != nil {
+		if err := s.journal.Append(time.Now(), name, body); err != nil {
+			fmt.Fprintf(s.out, "[%s] task %q: journal write failed: %v\n", now(), name, err)
+		}
 	}
-	if err := s.journal.Append(time.Now(), name, body); err != nil {
-		fmt.Fprintf(s.out, "[%s] task %q: journal write failed: %v\n", now(), name, err)
+	if s.mailer != nil {
+		if err := s.mailer.Deliver("agentbox: "+name, body); err != nil {
+			fmt.Fprintf(s.out, "[%s] task %q: email delivery failed: %v\n", now(), name, err)
+		}
 	}
 }
 

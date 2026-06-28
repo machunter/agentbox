@@ -21,6 +21,7 @@ import (
 	"github.com/burcsahinoglu/agentbox/internal/capture"
 	"github.com/burcsahinoglu/agentbox/internal/journal"
 	"github.com/burcsahinoglu/agentbox/internal/llm"
+	"github.com/burcsahinoglu/agentbox/internal/mailer"
 	"github.com/burcsahinoglu/agentbox/internal/mcpcal"
 	"github.com/burcsahinoglu/agentbox/internal/mcpfs"
 	"github.com/burcsahinoglu/agentbox/internal/mcpmail"
@@ -278,6 +279,11 @@ func runScheduler(mode string, args []string) {
 	// at most once a day, even across repeated container restarts.
 	if dir := os.Getenv("AGENTBOX_MEMORY_DIR"); dir != "" {
 		sched = sched.WithRunLog(filepath.Join(dir, "scheduler-runs.json"))
+	}
+	// Optional: email each task's digest to the user (reuses IMAP credentials).
+	if mcfg, ok := mailer.LoadConfig(); ok {
+		sched = sched.WithMailer(mailer.New(mcfg))
+		fmt.Fprintf(os.Stdout, "scheduler: email delivery enabled (to %s)\n", mcfg.To)
 	}
 
 	switch mode {

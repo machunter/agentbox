@@ -316,6 +316,13 @@ assistant's delivery channel without email/push: read today's file to catch up o
 the morning briefing, what it captured, and so on. Location is
 `AGENTBOX_JOURNAL_DIR` (mounted from `AGENTBOX_JOURNAL_HOST` in the stack).
 
+**Email delivery (optional).** Set `AGENTBOX_SMTP_HOST` (e.g. `smtp.gmail.com`)
+to also email each digest to yourself — it reuses your IMAP user/password (the
+same Gmail/Workspace app password authorizes SMTP) and sends to
+`AGENTBOX_IMAP_USER`, or to `AGENTBOX_DELIVER_EMAIL` if set (use a **personal**
+address to keep work infra out of it). It's self-addressed only — not a
+send-to-anyone capability.
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -334,6 +341,8 @@ the morning briefing, what it captured, and so on. Location is
 | `AGENTBOX_IMAP_USER` | — | IMAP username. |
 | `AGENTBOX_IMAP_PASS` | — | IMAP password (use an app password). |
 | `AGENTBOX_EMAIL_SINCE_DAYS` | `0` (no limit) | Minimum lookback window (days) for the email tools; a per-call `since_days` can widen it but not narrow below this. |
+| `AGENTBOX_SMTP_HOST` / `AGENTBOX_SMTP_PORT` | — / `587` | Set the host to email each daily digest to yourself (reuses the IMAP user/password). |
+| `AGENTBOX_DELIVER_EMAIL` | IMAP user | Where to send digests (a personal address keeps work infra out of it). |
 | `AGENTBOX_ICS_URLS` | — | Calendar ICS feed URLs (comma-separated); enables calendar tools. |
 | `AGENTBOX_CAL_EMAIL` | `AGENTBOX_IMAP_USER` | Your own calendar address(es), comma-separated; lets the agent read your RSVP status so it won't assume you accepted an invite. |
 | `AGENTBOX_CAL_TIMEOUT` | `60` | Seconds to fetch an ICS feed; raise for large feeds (tens of MB). |

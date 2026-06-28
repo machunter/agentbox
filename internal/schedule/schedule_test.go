@@ -390,3 +390,33 @@ func TestRunLog(t *testing.T) {
 		t.Error("nil run-log should report not-run")
 	}
 }
+
+type fakeMailer struct {
+	subjects []string
+	bodies   []string
+}
+
+func (f *fakeMailer) Deliver(subject, body string) error {
+	f.subjects = append(f.subjects, subject)
+	f.bodies = append(f.bodies, body)
+	return nil
+}
+
+func TestRecordDeliversByEmail(t *testing.T) {
+	cfg := &Config{Tasks: []Task{{Name: "brief", Schedule: "@daily", Prompt: "p"}}}
+	factory := func(context.Context, io.Writer) (Agent, error) {
+		return answeringAgent{answer: "Your summary."}, nil
+	}
+	fm := &fakeMailer{}
+	s := New(cfg, io.Discard, factory, nil, nil, time.UTC).WithMailer(fm)
+
+	if err := s.RunOnce(context.Background(), "brief"); err != nil {
+		t.Fatal(err)
+	}
+	if len(fm.bodies) != 1 || fm.bodies[0] != "Your summary." {
+		t.Fatalf("mailer should get the answer body: %v", fm.bodies)
+	}
+	if len(fm.subjects) != 1 || !strings.Contains(fm.subjects[0], "brief") {
+		t.Errorf("subject should mention the task: %v", fm.subjects)
+	}
+}
