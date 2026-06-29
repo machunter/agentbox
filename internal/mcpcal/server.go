@@ -133,7 +133,33 @@ func CheckConnection(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("calendar not configured (set AGENTBOX_ICS_URLS)")
 	}
 	s := &server{cfg: cfg, client: &http.Client{Timeout: fetchTimeout()}, cache: newFeedCache(calCacheDir())}
-	return s.upcoming(ctx, defaultUpcomingDays, maxEvents)
+	out, err := s.upcoming(ctx, defaultUpcomingDays, maxEvents)
+	if err != nil {
+		return "", err
+	}
+	// Make the RSVP precondition explicit: if an address is configured but the
+	// feed carries no attendee data, decline-hiding cannot work (Google's
+	// secret-iCal export omits attendees). Say so rather than implying it does.
+	if len(cfg.UserEmails) > 0 {
+		if cals, cerr := s.calendars(ctx); cerr == nil && !anyAttendees(cals) {
+			out += "\n\n[RSVP unavailable] This feed includes no attendee/PARTSTAT data " +
+				"(e.g. Google's secret-iCal export), so the agent can't tell which events you declined — every event is shown."
+		}
+	}
+	return out, nil
+}
+
+// anyAttendees reports whether any event in the feeds carries attendee data —
+// the precondition for reading the user's RSVP at all.
+func anyAttendees(cals []*ical.Calendar) bool {
+	for _, cal := range cals {
+		for _, ev := range cal.Events() {
+			if len(ev.Props[ical.PropAttendee]) > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // --- tool inputs ---
@@ -155,7 +181,7 @@ type searchInput struct {
 func (s *server) registerTools(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_upcoming_events",
-		Description: "List upcoming calendar events over the next N days (chronological), with start/end, title, location, and the user's RSVP status. Events the user has declined are omitted; ones not yet confirmed are flagged ('not yet accepted' or 'tentative') — an unflagged event is accepted or has no RSVP info. Never assume attendance for a flagged one.",
+		Description: "List upcoming calendar events over the next N days (chronological): start/end, title, location. When the feed includes the user's RSVP, declined events are omitted and unconfirmed ones flagged ('not yet accepted' or 'tentative'); but many feeds — including Google's secret-iCal address — carry no RSVP, in which case every event (declined included) is shown. So a listed event is not proof of attendance; never assume attendance for a flagged one.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in upcomingInput) (*mcp.CallToolResult, any, error) {
 		out, err := s.upcoming(ctx, daysOr(in.Days, defaultUpcomingDays), limitOr(in.Limit))
 		return textResult(out, err), nil, nil
@@ -361,6 +387,7 @@ type eventInstance struct {
 // userEmails identifies the user among attendees so each occurrence carries the
 // user's RSVP status; pass nil/empty to skip status resolution.
 func collectInstances(cals []*ical.Calendar, winStart, winEnd time.Time, loc *time.Location, userEmails map[string]bool) []eventInstance {
+	overrides := recurrenceOverrides(cals, loc)
 	var out []eventInstance
 	for _, cal := range cals {
 		name := calendarName(cal)
@@ -374,6 +401,8 @@ func collectInstances(cals []*ical.Calendar, winStart, winEnd time.Time, loc *ti
 			// A declined event means the user explicitly isn't attending — drop it
 			// so it never reaches a listing or the daily summary. Tentative and
 			// not-yet-answered events are kept (the user may still go) but flagged.
+			// (Only effective when the feed actually carries the user's PARTSTAT;
+			// Google's secret-iCal export omits attendees, so rsvp is "" there.)
 			if rsvp == "declined" {
 				continue
 			}
@@ -386,11 +415,21 @@ func collectInstances(cals []*ical.Calendar, winStart, winEnd time.Time, loc *ti
 			startProp := ev.Props.Get(ical.PropDateTimeStart)
 			allDay := startProp != nil && startProp.ValueType() == ical.ValueDate
 
+			uid := eventUID(ev)
+			_, isOverride := recurrenceInstant(ev, loc)
+
 			var dur time.Duration
 			if end, eerr := ev.DateTimeEnd(loc); eerr == nil && end.After(start) {
 				dur = end.Sub(start)
 			}
 			for _, occ := range occurrences(ev, start, winStart, winEnd, loc) {
+				// A series occurrence that has its own override VEVENT (same UID +
+				// RECURRENCE-ID) is emitted by that override, not by the master —
+				// skip it here so the instance isn't double-counted (and a moved
+				// occurrence doesn't appear at both its old and new time).
+				if !isOverride && uid != "" && overrides[occKey(uid, occ)] {
+					continue
+				}
 				out = append(out, eventInstance{
 					Start:    occ,
 					End:      occ.Add(dur),
@@ -405,6 +444,53 @@ func collectInstances(cals []*ical.Calendar, winStart, winEnd time.Time, loc *ti
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })
 	return out
+}
+
+// recurrenceOverrides indexes, by UID + occurrence instant, every event that
+// overrides a single occurrence of a recurring series (a VEVENT carrying a
+// RECURRENCE-ID). The master series' generated occurrence at that instant is
+// then suppressed in favor of the override — otherwise Google-style feeds, which
+// emit a separate VEVENT per modified occurrence, double-count those instances.
+func recurrenceOverrides(cals []*ical.Calendar, loc *time.Location) map[string]bool {
+	overrides := map[string]bool{}
+	for _, cal := range cals {
+		for _, ev := range cal.Events() {
+			if t, ok := recurrenceInstant(ev, loc); ok {
+				if uid := eventUID(ev); uid != "" {
+					overrides[occKey(uid, t)] = true
+				}
+			}
+		}
+	}
+	return overrides
+}
+
+// eventUID returns a VEVENT's UID, or "" if absent.
+func eventUID(ev ical.Event) string {
+	if p := ev.Props.Get(ical.PropUID); p != nil {
+		return p.Value
+	}
+	return ""
+}
+
+// recurrenceInstant parses a VEVENT's RECURRENCE-ID — the original start of the
+// occurrence it replaces — returning ok=false when the event isn't an override.
+func recurrenceInstant(ev ical.Event, loc *time.Location) (time.Time, bool) {
+	p := ev.Props.Get(ical.PropRecurrenceID)
+	if p == nil {
+		return time.Time{}, false
+	}
+	t, err := p.DateTime(loc)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
+// occKey identifies one occurrence of a series (by UID and instant) for matching
+// a master's generated occurrence against an override VEVENT.
+func occKey(uid string, t time.Time) string {
+	return uid + "\x00" + strconv.FormatInt(t.Unix(), 10)
 }
 
 // participationStatus returns the user's RSVP status for an event, normalized to

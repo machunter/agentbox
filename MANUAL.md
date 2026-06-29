@@ -208,15 +208,23 @@ docker compose run --rm --entrypoint agentbox agentbox cal-check
 
 Then: `make compose-run TASK="what's on my calendar this week?"`.
 
-**Set your own address so RSVP status is read correctly.** An ICS feed lists
-every event you're invited to, including ones you declined or haven't answered.
-Set `AGENTBOX_CAL_EMAIL=you@example.com` (it defaults to `AGENTBOX_IMAP_USER`) and
-the agent reads *your* `PARTSTAT` on each event: events you **declined are hidden**
-(so they never show up in a summary), and unconfirmed ones are flagged `not yet
-accepted` or `tentative` — so it won't tell you you're attending a meeting you
-never accepted. Comma-separate multiple addresses/aliases. **Without a matching
-address the RSVP can't be read, so every event (declined included) is shown** — in
-a work setup, make sure this is the address your invitations are sent to.
+**RSVP / declined-event handling is best-effort and depends on your feed.** When
+the ICS feed includes your `PARTSTAT`, set `AGENTBOX_CAL_EMAIL=you@example.com`
+(defaults to `AGENTBOX_IMAP_USER`) and the agent reads *your* response on each
+event: events you **declined are hidden**, and unconfirmed ones are flagged `not
+yet accepted` or `tentative`. Comma-separate multiple addresses/aliases.
+
+> ⚠️ **Google Calendar's "secret address in iCal format" feed does not include
+> attendees or your RSVP at all** — every event comes through as `CONFIRMED` with
+> no `ATTENDEE` line. So against a Google secret-iCal feed, **declined events
+> cannot be detected or hidden**, regardless of `AGENTBOX_CAL_EMAIL`. `cal-check`
+> prints an `[RSVP unavailable]` note when it sees a feed like this. The only way
+> to get real RSVP from Google is the Calendar API (OAuth), which agentbox
+> deliberately doesn't use today.
+
+Recurring events whose individual occurrences were modified (Google emits a
+separate entry per change) are de-duplicated, so a tweaked occurrence shows once,
+not twice.
 
 ## 8. Connect Slack (read-only)
 

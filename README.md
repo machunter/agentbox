@@ -399,13 +399,13 @@ iCal format"** — a private, read-only URL, so no OAuth or app password is need
 Set `AGENTBOX_TIMEZONE` (e.g. `America/New_York`) so "today" and event times read
 correctly. Test setup without the agent via `agentbox cal-check`.
 
-Set `AGENTBOX_CAL_EMAIL` to your own calendar address (it defaults to
-`AGENTBOX_IMAP_USER`) so the agent reads *your* RSVP status on each event. Events
-you **declined are omitted** (they won't appear in a summary), and ones you
-haven't confirmed are flagged — `not yet accepted` or `tentative` — so the agent
-doesn't treat an unanswered invite as one you're attending. Without a matching
-address the RSVP can't be read, so every event (declined included) is shown — set
-this to the address your invites are sent to (especially on a work calendar).
+Set `AGENTBOX_CAL_EMAIL` to your own calendar address (defaults to
+`AGENTBOX_IMAP_USER`) and, **when the feed includes your RSVP**, the agent omits
+events you **declined** and flags unconfirmed ones (`not yet accepted` /
+`tentative`). Note: **Google's secret-iCal feed carries no attendee/RSVP data**,
+so declined events can't be detected there — `cal-check` prints an `[RSVP
+unavailable]` note when it sees such a feed. Getting real RSVP from Google needs
+the Calendar API (OAuth), which agentbox doesn't use.
 
 ### Slack (read-only)
 

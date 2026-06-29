@@ -271,6 +271,63 @@ END:VEVENT
 END:VCALENDAR
 `
 
+// recurringWithOverrideICS mirrors how Google emits a modified occurrence of a
+// recurring series: a master VEVENT with an RRULE, plus a separate VEVENT with
+// the same UID and a RECURRENCE-ID. Here the 06-02 occurrence is moved from
+// 10:00 to 15:00.
+const recurringWithOverrideICS = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//test//test//EN
+BEGIN:VEVENT
+UID:series@test
+DTSTART:20260601T100000Z
+RRULE:FREQ=DAILY;COUNT=3
+SUMMARY:Daily Standup
+END:VEVENT
+BEGIN:VEVENT
+UID:series@test
+RECURRENCE-ID:20260602T100000Z
+DTSTART:20260602T150000Z
+SUMMARY:Daily Standup
+END:VEVENT
+END:VCALENDAR
+`
+
+func TestCollectInstancesReconcilesOverrides(t *testing.T) {
+	cal := decodeCal(t, recurringWithOverrideICS)
+	insts := collectInstances([]*ical.Calendar{cal}, day(2026, 6, 1), day(2026, 6, 4), time.UTC, nil)
+
+	// 3 occurrences, not 4: the master's 06-02 is replaced by the override, not
+	// duplicated alongside it.
+	if len(insts) != 3 {
+		t.Fatalf("want 3 instances (06-02 deduped), got %d: %+v", len(insts), insts)
+	}
+	// The single 06-02 instance is the override's moved time (15:00), not 10:00.
+	var june2 []time.Time
+	for _, e := range insts {
+		if e.Start.Day() == 2 {
+			june2 = append(june2, e.Start)
+		}
+	}
+	if len(june2) != 1 {
+		t.Fatalf("want exactly one 06-02 instance, got %d: %v", len(june2), june2)
+	}
+	if june2[0].Hour() != 15 {
+		t.Errorf("06-02 should be the override's 15:00, got %02d:00", june2[0].Hour())
+	}
+}
+
+func TestAnyAttendees(t *testing.T) {
+	without := decodeCal(t, recurringWithOverrideICS) // no ATTENDEE lines
+	if anyAttendees([]*ical.Calendar{without}) {
+		t.Error("feed without attendees should report none")
+	}
+	with := decodeCal(t, rsvpICS) // has ATTENDEE lines
+	if !anyAttendees([]*ical.Calendar{with}) {
+		t.Error("feed with attendees should report present")
+	}
+}
+
 func TestCollectInstancesDropsDeclined(t *testing.T) {
 	cal := decodeCal(t, declinedICS)
 	me := map[string]bool{"me@example.com": true}
