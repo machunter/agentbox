@@ -5,7 +5,7 @@
 > treat it as the source of intent, not a frozen spec.
 
 **Status key:** ✅ Shipped (validated live) · 🟡 Shipped (unit-tested, not exercised live) · 🔵 Planned · 🤔 Considering
-**Last updated:** 2026-06-29 (read-only Google Drive connector — Drive API + OAuth, exports native Google Docs to Markdown); 2026-06-28 (scope down calendar RSVP — feed-dependent, Google secret-iCal omits it; reconcile RECURRENCE-ID overrides); 2026-06-25 (read-only Slack connector); 2026-06-24 (mailbox aliases + `list_mailboxes`; calendar RSVP status) · **Branch of record:** `main`
+**Last updated:** 2026-06-29 (dedup against recently-completed todos to stop sweep "resurrection"; read-only Google Drive connector — Drive API + OAuth, exports native Google Docs to Markdown); 2026-06-28 (scope down calendar RSVP — feed-dependent, Google secret-iCal omits it; reconcile RECURRENCE-ID overrides); 2026-06-25 (read-only Slack connector); 2026-06-24 (mailbox aliases + `list_mailboxes`; calendar RSVP status) · **Branch of record:** `main`
 
 ---
 
@@ -64,7 +64,7 @@ user's control, on their own hardware, scoped to what they explicitly grant.
 | `run_bash` tool | ✅ | Shell in the container; 60s per-command timeout |
 | Long-term memory (recall across runs) | ✅ | Auto-recall (`preloadmemorytool`) + on-demand (`loadmemorytool`); persisted after each run |
 | Filesystem tools (`list_directory`, `read_file`, `search_files`) | ✅ | MCP server jailed to `/workspace` |
-| Todos & notes (`add_todo`, `list_todos`, `complete_todo`, `add_note`, `search_notes`) | ✅ | Local markdown store; always on; validated live. `add_todo` deterministically skips near-duplicates (token-overlap guard in `internal/mcpnotes`), so the same item arriving from two sources (email + Slack) won't create a repeat. A filing rubric in the agent prompt does the judgment the code can't: skip spam/cold-outreach and below-the-owner's-role admin tasks, prefer a note when unsure (owner operates at CTO level) |
+| Todos & notes (`add_todo`, `list_todos`, `complete_todo`, `add_note`, `search_notes`) | ✅ | Local markdown store; always on; validated live. `add_todo` deterministically skips near-duplicates (token-overlap guard in `internal/mcpnotes`) against both open todos AND ones completed within the last ~30 days — so the same item arriving from two sources (email + Slack) won't create a repeat, and a source message re-seen during a multi-day sweep won't be "resurrected" after its todo was completed. A filing rubric in the agent prompt does the judgment the code can't: skip spam/cold-outreach and below-the-owner's-role admin tasks, prefer a note when unsure (owner operates at CTO level) |
 | Photo capture (vision) of todos/notes | ✅ | Drop a photo in the capture inbox; Claude vision reads it and files items, then the image is deleted (failures kept in `failed/`); schedulable. Validated live |
 | Voice capture of todos/notes | 🔵 | Same inbox, audio → text needs a local Whisper model (no cloud STT); v2 |
 | Multimodal agent input (images) | ✅ | `RunWithImage`; adapter sends inline image as a vision block |

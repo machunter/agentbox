@@ -113,7 +113,7 @@ func main() {
 			os.Exit(1)
 		}
 		if !added {
-			fmt.Printf("skipped — near-duplicate of: %s\n", dup)
+			fmt.Printf("skipped — matches an existing open or recently completed todo: %s\n", dup)
 			return
 		}
 		fmt.Println("added todo:", text)

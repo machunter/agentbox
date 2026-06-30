@@ -56,11 +56,13 @@ type Todo struct {
 
 // --- file-backed operations ---
 
-// AddTodo appends a new open todo. If an existing open todo is a near-duplicate
-// (see similarTodo), it writes nothing and returns added=false with dup set to
-// the existing todo's text, so the caller can report the conflict instead of
-// creating a repeat. This guards against the same item arriving from two sources
-// (e.g. an email update and a Slack mention of the same thread).
+// AddTodo appends a new open todo. It writes nothing and returns added=false
+// (with dup set to the conflicting todo's text) when the new item is a
+// near-duplicate of either an existing open todo OR one completed within the
+// dedup window. The open check stops the same item arriving from two sources
+// (email update + Slack mention); the completed check stops "resurrection" — a
+// source message re-seen during a multi-day sweep being re-filed after its todo
+// was already done and archived out of the open list.
 func (s *Store) AddTodo(text string) (added bool, dup string, err error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -76,6 +78,9 @@ func (s *Store) AddTodo(text string) (added bool, dup string, err error) {
 		return false, "", err
 	}
 	if existing := similarTodo(parseTodos(content), text); existing != "" {
+		return false, existing, nil
+	}
+	if existing := similarText(s.recentDoneTextsLocked(dedupWindowDays), text); existing != "" {
 		return false, existing, nil
 	}
 	if err := s.write(s.todosDir, todosFile, addTodo(content, text, s.today())); err != nil {
@@ -346,27 +351,65 @@ func containment(a, b map[string]bool) float64 {
 }
 
 // similarTodo returns the text of an open todo that is a near-duplicate of
-// candidate, or "" if none. It matches when either todo's content tokens are
-// mostly contained in the other's, so a shorter rephrase of a longer item still
-// counts — while the high threshold keeps distinct todos from being dropped.
+// candidate, or "" if none.
 func similarTodo(todos []Todo, candidate string) string {
+	var open []string
+	for _, t := range todos {
+		if !t.Done {
+			open = append(open, t.Text)
+		}
+	}
+	return similarText(open, candidate)
+}
+
+// similarText returns the first entry in existing that is a near-duplicate of
+// candidate, or "". It matches when either side's content tokens are mostly
+// contained in the other's, so a shorter rephrase of a longer item still counts
+// — while the high threshold keeps distinct todos from being dropped.
+func similarText(existing []string, candidate string) string {
 	cand := todoTokens(candidate)
 	if len(cand) == 0 {
 		return ""
 	}
-	for _, t := range todos {
-		if t.Done {
+	for _, ex := range existing {
+		et := todoTokens(ex)
+		if len(et) == 0 {
 			continue
 		}
-		ex := todoTokens(t.Text)
-		if len(ex) == 0 {
-			continue
-		}
-		if containment(cand, ex) >= dupThreshold || containment(ex, cand) >= dupThreshold {
-			return t.Text
+		if containment(cand, et) >= dupThreshold || containment(et, cand) >= dupThreshold {
+			return ex
 		}
 	}
 	return ""
+}
+
+// dedupWindowDays bounds how far back completed todos are considered when
+// deduping a new one. Long enough to cover a multi-day email/Slack sweep (so a
+// re-seen message isn't re-filed after its todo was completed), but bounded so a
+// genuinely recurring task can legitimately reappear after the window.
+const dedupWindowDays = 30
+
+// recentDoneTextsLocked returns the texts of todos completed within the last
+// `days`, read from the dated done/ files (named by completion date). The caller
+// must hold s.mu.
+func (s *Store) recentDoneTextsLocked(days int) []string {
+	matches, _ := filepath.Glob(filepath.Join(s.todosDir, doneDir, "*.md"))
+	cutoff := time.Now().In(s.loc).AddDate(0, 0, -days)
+	var texts []string
+	for _, m := range matches {
+		date := strings.TrimSuffix(filepath.Base(m), ".md")
+		if d, err := time.ParseInLocation("2006-01-02", date, s.loc); err == nil && d.Before(cutoff) {
+			continue // completed before the window
+		}
+		data, err := os.ReadFile(m)
+		if err != nil {
+			continue
+		}
+		for _, t := range parseTodos(string(data)) {
+			texts = append(texts, t.Text)
+		}
+	}
+	return texts
 }
 
 func addTodo(content, text, date string) string {

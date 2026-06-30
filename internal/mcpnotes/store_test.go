@@ -124,6 +124,56 @@ func TestAddTodoSkipsNearDuplicate(t *testing.T) {
 	}
 }
 
+func TestAddTodoSkipsRecentlyCompleted(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir, dir, time.UTC)
+
+	// File a todo, then complete it (moves it to done/<today>.md).
+	if _, _, err := s.AddTodo("Reply to Jary in #team-software-leadership about the roadmap"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CompleteTodo("Jary"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Re-filing the same item (as a sweep would, re-seeing Jary's message) must
+	// be skipped — not resurrected — because it was just completed.
+	added, dup, err := s.AddTodo("reply to Jary in #team-software-leadership re the roadmap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added {
+		t.Error("a recently-completed item should not be re-added (resurrection)")
+	}
+	if dup == "" {
+		t.Error("skip should report the completed todo it matched")
+	}
+	if list, _ := s.ListTodos(false); strings.Contains(list, "Jary") {
+		t.Errorf("resurrected todo leaked back onto the open list:\n%s", list)
+	}
+}
+
+func TestRecentDoneWindowExcludesOld(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir, dir, time.UTC)
+
+	// Simulate a todo completed long ago by writing a stale done/ file directly.
+	oldDate := time.Now().AddDate(0, 0, -(dedupWindowDays + 10)).Format("2006-01-02")
+	doneFile := filepath.Join(dir, "done", oldDate+".md")
+	if err := os.MkdirAll(filepath.Dir(doneFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(doneFile, []byte("- [x] Quarterly board prep deck\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Outside the window, the same task may legitimately recur — so it adds.
+	added, _, err := s.AddTodo("Quarterly board prep deck")
+	if err != nil || !added {
+		t.Fatalf("task completed outside the window should be addable: added=%v err=%v", added, err)
+	}
+}
+
 func TestRemoveTodo(t *testing.T) {
 	content := "- [ ] call dentist\n- [ ] buy oat milk\n"
 
