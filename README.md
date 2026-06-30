@@ -59,6 +59,11 @@ adapter.
   (`list_channels`, `read_channel`, `read_thread`, `search_messages`), resolving
   user IDs and `<@mentions>` to names. Authenticated by a single configured token
   (no OAuth). Enabled only when `AGENTBOX_SLACK_TOKEN` is set.
+- **`internal/mcpgdrive`** — a read-only Google Drive MCP server over the Drive
+  API (`search_drive`, `read_drive_file`, `list_recent_files`). Exports native
+  Google Docs/Sheets/Slides to Markdown/CSV/text. OAuth with a locally-stored
+  refresh token (`agentbox gdrive-login`); enabled only when the Drive client
+  credentials are set.
 - **`internal/mcpnotes`** — a local notes/todo MCP server (`add_todo`,
   `list_todos`, `complete_todo`, `add_note`, `search_notes`) over plain markdown
   (`todos.md` + `inbox.md`). Always on; the agent files and manages todos/notes
@@ -350,6 +355,8 @@ send-to-anyone capability.
 | `AGENTBOX_SLACK_TOKEN` | — | Slack token; enables the Slack tools. Use a user token (`xoxp-`) for `search_messages`; a bot token (`xoxb-`) covers the rest. |
 | `AGENTBOX_SLACK_LOOKBACK_DAYS` | `0` (no limit) | Default history lookback (days) for `read_channel`; a per-call `since_days` overrides it. |
 | `AGENTBOX_SLACK_TIMEOUT` | `30` | Seconds for a single Slack API request. |
+| `AGENTBOX_GDRIVE_CLIENT_ID` / `_CLIENT_SECRET` | — | Google OAuth client for Drive; with the refresh token, enables the Drive tools. |
+| `AGENTBOX_GDRIVE_REFRESH_TOKEN` | — | Drive OAuth refresh token from `agentbox gdrive-login`; stored locally, refreshed silently. |
 | `AGENTBOX_TIMEZONE` | `UTC` | Timezone for day boundaries, event times, and cron schedules. |
 | `AGENTBOX_SCHEDULE` | — | Path to the schedule YAML (required for `serve` / `run-task`). |
 | `AGENTBOX_MAX_TOOL_CALLS` | `50` | Max tool-call rounds before a run is stopped (then it's asked to summarize). Raise for busy work mailboxes. |
@@ -419,6 +426,21 @@ api.slack.com/apps → **OAuth & Permissions** → add user-token scopes
 which Slack only allows on user tokens. Test the token without the agent via
 `agentbox slack-check`. Posting isn't supported yet — it'll come as a separate,
 confirmation-gated capability, the same as email sending.
+
+### Google Drive (read-only)
+
+Gives the agent read-only Drive tools: `search_drive`, `read_drive_file`, and
+`list_recent_files`. Unlike a shared folder or ICS-style feed, the Drive API can
+read **native Google Docs/Sheets/Slides** — they're exported to
+Markdown/CSV/text. One-time OAuth setup (full walkthrough in
+[MANUAL.md](MANUAL.md)): create an OAuth client (a Workspace **Internal** app
+needs no Google verification and issues a non-expiring token), set
+`AGENTBOX_GDRIVE_CLIENT_ID`/`_CLIENT_SECRET`, then run `agentbox gdrive-login`
+once (on a machine with a browser) and paste the printed
+`AGENTBOX_GDRIVE_REFRESH_TOKEN` into `.env`. Tokens stay on your machine and
+refresh silently. Verify with `agentbox gdrive-check`. Scope is `drive.readonly`.
+A personal `gmail.com` account is harder (restricted-scope verification + 7-day
+test tokens) — an `rclone` mount is the practical route there.
 
 ## Debugging
 

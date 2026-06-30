@@ -21,6 +21,7 @@ notes, remembers across sessions, and can run tasks on a schedule.
 6. [Connect email](#6-connect-email-read-only)
 7. [Connect your calendar](#7-connect-your-calendar-read-only)
 8. [Connect Slack](#8-connect-slack-read-only)
+8b. [Connect Google Drive](#8b-connect-google-drive-read-only)
 9. [Todos & notes](#9-todos--notes)
 10. [Capture from a photo](#10-capture-from-a-photo)
 11. [Run it on a schedule](#11-run-it-on-a-schedule)
@@ -270,6 +271,54 @@ capability.
 Set `AGENTBOX_SLACK_USER` to your Slack display name/handle so briefings can
 surface messages directed at *you* — the agent is told your handle and searches
 for it (otherwise it can't tell which messages are mentions of you).
+
+## 8b. Connect Google Drive (read-only)
+
+agentbox reads Drive through the **Google Drive API** with OAuth — this is what
+makes native **Google Docs/Sheets/Slides** readable (they're exported to
+Markdown/CSV/text), which a shared folder or ICS-style feed can't do. Tools:
+`search_drive`, `read_drive_file`, `list_recent_files`. Scope is `drive.readonly`.
+
+It's a one-time OAuth setup. The smooth path is a **Workspace "Internal" app** —
+internal apps skip Google's verification/CASA review and issue a non-expiring
+refresh token:
+
+1. In [Google Cloud Console](https://console.cloud.google.com) create (or reuse)
+   a project **owned by your Workspace org** (e.g. owletcare.com). Enable the
+   **Google Drive API**.
+2. **APIs & Services → OAuth consent screen:** set **User type = Internal**, fill
+   the app name. (Internal = only your org's users, no verification needed.)
+3. **Credentials → Create credentials → OAuth client ID → Desktop app.** Copy the
+   **client ID** and **client secret** into `.env`:
+   ```
+   AGENTBOX_GDRIVE_CLIENT_ID=...apps.googleusercontent.com
+   AGENTBOX_GDRIVE_CLIENT_SECRET=...
+   ```
+4. Get the refresh token (run **on your laptop**, where a browser can open — not
+   in the headless container). With the two vars exported:
+   ```sh
+   agentbox gdrive-login        # or: make build && ./agentbox gdrive-login
+   ```
+   It prints a URL; authorize in the browser; it then prints
+   `AGENTBOX_GDRIVE_REFRESH_TOKEN=...`. Paste that into `.env` too.
+5. Verify (works in the container):
+   ```sh
+   docker compose run --rm --entrypoint agentbox agentbox gdrive-check
+   ```
+   It should list a few recent files. Then: `make compose-run TASK="find my Q3
+   planning doc in Drive and summarize it"`.
+
+Notes and limits:
+- **Workspace (Internal app) is the easy case.** A **personal `gmail.com`**
+  account can't make an Internal app; an External app requesting `drive.readonly`
+  (a *restricted* scope) needs Google verification + a CASA security review for
+  production, and refresh tokens expire after 7 days while the app is in
+  "Testing". For personal Drive, an `rclone` mount is usually the more practical
+  route.
+- Your **Workspace admin** may restrict OAuth apps/scopes — if `gdrive-login`
+  is blocked, ask IT to allow an internal app with `drive.readonly`.
+- Read-only by design. Binary files (images, etc.) can't be read as text;
+  PDFs come through as their raw bytes, so prefer native Docs or text files.
 
 ## 9. Todos & notes
 
@@ -529,7 +578,8 @@ container path.
 | `agentbox todo "<text>"` | Add a todo (no model/API key needed — appends to the store). |
 | `agentbox todos` | List open todos (no model needed). |
 | `agentbox done "<which todo>"` | Mark a todo done; the model matches your description to the right open todo. |
-| `agentbox mail-check` / `cal-check` | Test email / calendar setup (no API call). |
+| `agentbox mail-check` / `cal-check` / `slack-check` / `gdrive-check` | Test email / calendar / Slack / Drive setup (no model call). |
+| `agentbox gdrive-login` | One-time Google Drive OAuth consent; prints the refresh token. Run on a machine with a browser. |
 | `agentbox version` | Print the build version, git commit, and build date. |
 
 ### Environment variables
@@ -558,6 +608,8 @@ container path.
 | `AGENTBOX_SLACK_USER` | Your Slack display name/handle, so briefings can find messages directed at you. |
 | `AGENTBOX_SLACK_LOOKBACK_DAYS` | Default `read_channel` history lookback (days); `0`/unset = count-based only. |
 | `AGENTBOX_SLACK_TIMEOUT` | Seconds for a single Slack API request (default 30). |
+| `AGENTBOX_GDRIVE_CLIENT_ID` / `_CLIENT_SECRET` | Google OAuth client (Drive). Enables the Drive tools together with the refresh token. |
+| `AGENTBOX_GDRIVE_REFRESH_TOKEN` | Drive OAuth refresh token from `agentbox gdrive-login`. Kept local; refreshed silently per run. |
 | `AGENTBOX_TIMEZONE` | Timezone for day boundaries and cron (e.g. `America/Los_Angeles`). |
 | `AGENTBOX_TODOS_DIR` | Where `todos.md` + `done/` live (default `todos/`). |
 | `AGENTBOX_NOTES_DIR` | Where `inbox.md` (free-form notes) lives (default `notes/`). |

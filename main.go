@@ -24,6 +24,7 @@ import (
 	"github.com/burcsahinoglu/agentbox/internal/mailer"
 	"github.com/burcsahinoglu/agentbox/internal/mcpcal"
 	"github.com/burcsahinoglu/agentbox/internal/mcpfs"
+	"github.com/burcsahinoglu/agentbox/internal/mcpgdrive"
 	"github.com/burcsahinoglu/agentbox/internal/mcpmail"
 	"github.com/burcsahinoglu/agentbox/internal/mcpnotes"
 	"github.com/burcsahinoglu/agentbox/internal/mcpslack"
@@ -168,6 +169,38 @@ func main() {
 		out, err := mcpslack.CheckConnection(context.Background())
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "slack-check:", err)
+			os.Exit(1)
+		}
+		fmt.Println(out)
+		return
+	}
+
+	// Internal subcommand: run as the read-only Google Drive MCP server over
+	// stdio. Uses the stored OAuth refresh token; no API key needed.
+	if len(os.Args) > 1 && os.Args[1] == "mcp-gdrive" {
+		if err := mcpgdrive.Serve(context.Background()); err != nil {
+			fmt.Fprintln(os.Stderr, "mcp-gdrive:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// One-time setup: run the Google OAuth consent flow and print the refresh
+	// token to store in AGENTBOX_GDRIVE_REFRESH_TOKEN. Run on a machine with a
+	// browser (not the headless container).
+	if len(os.Args) > 1 && os.Args[1] == "gdrive-login" {
+		if err := mcpgdrive.Login(context.Background()); err != nil {
+			fmt.Fprintln(os.Stderr, "gdrive-login:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Diagnostic subcommand: test the Drive token by listing a few files.
+	if len(os.Args) > 1 && os.Args[1] == "gdrive-check" {
+		out, err := mcpgdrive.CheckConnection(context.Background())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "gdrive-check:", err)
 			os.Exit(1)
 		}
 		fmt.Println(out)

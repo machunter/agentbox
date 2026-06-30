@@ -37,6 +37,7 @@ import (
 	"github.com/burcsahinoglu/agentbox/internal/dbg"
 	"github.com/burcsahinoglu/agentbox/internal/llm"
 	"github.com/burcsahinoglu/agentbox/internal/mcpcal"
+	"github.com/burcsahinoglu/agentbox/internal/mcpgdrive"
 	"github.com/burcsahinoglu/agentbox/internal/mcpmail"
 	"github.com/burcsahinoglu/agentbox/internal/mcpslack"
 	"github.com/burcsahinoglu/agentbox/internal/memory"
@@ -69,6 +70,7 @@ const (
 		"When a calendar is configured, you have read-only calendar tools (list_upcoming_events, events_on_day, search_events); " +
 		"when the feed includes your RSVP, declined events are omitted and unconfirmed ones flagged ('not yet accepted'/'tentative'); but some feeds (e.g. Google's secret-iCal export) carry no RSVP at all, so a listed event is NOT proof you accepted it — don't assert attendance, and if it matters, note the calendar may not reflect declines. " +
 		"When Slack is configured, you have read-only Slack tools (list_channels, read_channel, read_thread, search_messages); find a channel with list_channels, then read it by name or ID. " +
+		"When Google Drive is configured, you have read-only Drive tools (search_drive, read_drive_file, list_recent_files); search for a file, then read it by ID — native Google Docs/Sheets/Slides come back as Markdown/CSV/text. " +
 		"Always use these dedicated email and calendar tools for those sources — do NOT fetch mailboxes or calendar/ICS feeds over the network with run_bash (curl, python, perl, etc.). " +
 		"If a connector you need isn't available (because it isn't configured), say so plainly and move on; do not improvise with bash or scripting languages. " +
 		"You have notes/todo tools (add_todo, list_todos, complete_todo, add_note, search_notes) for capturing and managing the user's todos and notes. " +
@@ -284,6 +286,9 @@ func New(ctx context.Context, out io.Writer, opts ...Option) (*Agent, error) {
 			toolsets = append(toolsets, slack)
 			slackNote = slackUserNote() // tell the agent the user's handle, if set
 		}
+		if gdrive := initGDriveTools(out); gdrive != nil {
+			toolsets = append(toolsets, gdrive)
+		}
 
 		// Give the general agent its persistent, self-built tool library: append
 		// the protocol and the current index so it reuses past work and grows the
@@ -404,6 +409,15 @@ func initSlackTools(out io.Writer) tool.Toolset {
 		return nil
 	}
 	return selfMCPToolset(out, "slack tools", "mcp-slack")
+}
+
+// initGDriveTools wires in the read-only Google Drive MCP server, but only when
+// Drive OAuth credentials are configured — otherwise Drive is silently skipped.
+func initGDriveTools(out io.Writer) tool.Toolset {
+	if !mcpgdrive.Configured() {
+		return nil
+	}
+	return selfMCPToolset(out, "google drive tools", "mcp-gdrive")
 }
 
 // initMemory builds the local memory service and probes the embedder. It
