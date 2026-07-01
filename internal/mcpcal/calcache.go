@@ -82,7 +82,7 @@ func (c *feedCache) save(url string, e cacheEntry) error {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if err := os.MkdirAll(c.dir, 0o755); err != nil {
+	if err := os.MkdirAll(c.dir, 0o700); err != nil {
 		return err
 	}
 	b, err := json.Marshal(e)
@@ -91,7 +91,8 @@ func (c *feedCache) save(url string, e cacheEntry) error {
 	}
 	p := c.path(url)
 	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	// 0o600: the cached body holds calendar PII (attendees, titles, locations).
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, p) // atomic replace

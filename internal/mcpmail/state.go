@@ -83,7 +83,7 @@ func (s *stateStore) load() map[string]watermark {
 }
 
 func (s *stateStore) save(m map[string]watermark) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return err
 	}
 	b, err := json.MarshalIndent(m, "", "  ")
@@ -91,7 +91,8 @@ func (s *stateStore) save(m map[string]watermark) error {
 		return err
 	}
 	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	// 0o600: mail watermarks are derived from the user's private mailbox.
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, s.path) // atomic replace

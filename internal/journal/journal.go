@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -16,6 +17,7 @@ import (
 type Journal struct {
 	dir string
 	loc *time.Location
+	mu  sync.Mutex // serializes Append so concurrent tasks don't race the header
 }
 
 // New returns a Journal writing to dir, dating entries in loc (nil = UTC).
@@ -29,6 +31,9 @@ func New(dir string, loc *time.Location) *Journal {
 // Append adds a timestamped section (## HH:MM — heading) with body to the
 // current day's file, creating the file (with a date header) if needed.
 func (j *Journal) Append(when time.Time, heading, body string) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
 	when = when.In(j.loc)
 	if err := os.MkdirAll(j.dir, 0o755); err != nil {
 		return fmt.Errorf("journal: create dir: %w", err)

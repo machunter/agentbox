@@ -369,7 +369,7 @@ func TestStartupCatchUpRunsOncePerDay(t *testing.T) {
 
 func TestRunLog(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runs.json")
-	r := newRunLog(path)
+	r := newRunLog(path, io.Discard)
 	if r.ranOn("brief", "2026-06-27") {
 		t.Error("fresh run-log should report not-run")
 	}
@@ -380,7 +380,7 @@ func TestRunLog(t *testing.T) {
 	if r.ranOn("brief", "2026-06-28") {
 		t.Error("different date should report not-run")
 	}
-	if !newRunLog(path).ranOn("brief", "2026-06-27") { // persisted
+	if !newRunLog(path, io.Discard).ranOn("brief", "2026-06-27") { // persisted
 		t.Error("run-log should persist across instances")
 	}
 	// nil/empty are safe no-ops.

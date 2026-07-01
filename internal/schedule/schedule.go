@@ -142,7 +142,7 @@ func (s *Scheduler) WithMailer(d Deliverer) *Scheduler {
 // last-run dates to path so restarts don't re-fire daily tasks. Returns the
 // scheduler for chaining.
 func (s *Scheduler) WithRunLog(path string) *Scheduler {
-	s.runs = newRunLog(path)
+	s.runs = newRunLog(path, s.out)
 	return s
 }
 
@@ -208,6 +208,20 @@ func (s *Scheduler) record(name, body string) {
 			fmt.Fprintf(s.out, "[%s] task %q: email delivery failed: %v\n", now(), name, err)
 		}
 	}
+}
+
+// maxFailureBody caps how much of an error string is journaled/emailed. Errors
+// can carry large upstream payloads (HTTP bodies, data fragments); we keep a
+// readable prefix rather than piping the whole thing into a delivery channel.
+const maxFailureBody = 2000
+
+// failureBody formats a task error for the journal/email, bounding its length.
+func failureBody(err error) string {
+	msg := err.Error()
+	if len(msg) > maxFailureBody {
+		msg = msg[:maxFailureBody] + "… [truncated]"
+	}
+	return "failed: " + msg
 }
 
 // Serve schedules all tasks and runs until ctx is cancelled, then waits for any
@@ -355,7 +369,7 @@ func (s *Scheduler) runTask(ctx context.Context, t Task) {
 		digest, err := cmd(runCtx, s.out)
 		if err != nil {
 			fmt.Fprintf(s.out, "[%s] task %q: failed: %v\n", now(), t.Name, err)
-			s.record(t.Name, "failed: "+err.Error())
+			s.record(t.Name, failureBody(err))
 			return
 		}
 		fmt.Fprintf(s.out, "[%s] task %q: done\n", now(), t.Name)
@@ -372,7 +386,7 @@ func (s *Scheduler) runTask(ctx context.Context, t Task) {
 	}
 	if err := ag.Run(runCtx, prompt); err != nil {
 		fmt.Fprintf(s.out, "[%s] task %q: failed: %v\n", now(), t.Name, err)
-		s.record(t.Name, "failed: "+err.Error())
+		s.record(t.Name, failureBody(err))
 		return
 	}
 	fmt.Fprintf(s.out, "[%s] task %q: done\n", now(), t.Name)

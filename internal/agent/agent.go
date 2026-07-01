@@ -513,7 +513,9 @@ func (a *Agent) wrapUp(ctx context.Context) {
 	bounded := 0
 	for ev, err := range a.runner.Run(ctx, userID, sessionID, msg, agent.RunConfig{}) {
 		if err != nil {
-			a.log.Debug("wrap-up error", "err", err)
+			// Surface at warn: a failed wrap-up (e.g. cancelled ctx) otherwise
+			// looks identical to a clean capped summary in the journal.
+			a.log.Warn("wrap-up failed; summary may be incomplete", "err", err)
 			return
 		}
 		a.printEvent(ev)

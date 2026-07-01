@@ -39,6 +39,36 @@ func TestSafeResolveJail(t *testing.T) {
 	}
 }
 
+func TestSafeResolveRejectsSymlinkEscape(t *testing.T) {
+	root := filepath.Clean(t.TempDir())
+	// A secret living outside the jail.
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	mustWrite(t, outside, "top secret")
+
+	// A symlink inside the jail that points at the outside secret — the kind of
+	// thing run_bash could create in the shared container.
+	link := filepath.Join(root, "escape")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	if _, err := safeResolve(root, "escape"); err == nil {
+		t.Error("safeResolve should reject a symlink pointing outside the root")
+	}
+	if _, err := readFile(root, "escape"); err == nil {
+		t.Error("readFile should refuse to follow a symlink out of the jail")
+	}
+
+	// A symlink pointing to an in-jail file is fine.
+	mustWrite(t, filepath.Join(root, "real.txt"), "ok")
+	if err := os.Symlink(filepath.Join(root, "real.txt"), filepath.Join(root, "inside")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	if out, err := readFile(root, "inside"); err != nil || out != "ok" {
+		t.Errorf("readFile(inside) = %q, %v; want %q, nil", out, err, "ok")
+	}
+}
+
 func TestListDir(t *testing.T) {
 	root := t.TempDir()
 	mustWrite(t, filepath.Join(root, "a.txt"), "hello")

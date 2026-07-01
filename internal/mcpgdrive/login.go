@@ -74,5 +74,8 @@ func Login(ctx context.Context) error {
 	fmt.Println("Success. Add this line to your .env (keep it secret):")
 	fmt.Println()
 	fmt.Println("  AGENTBOX_GDRIVE_REFRESH_TOKEN=" + tok.RefreshToken)
+	fmt.Println()
+	fmt.Println("Note: this long-lived token now sits in your terminal scrollback/history.")
+	fmt.Println("Clear it (and any session log) after copying it into your .env.")
 	return nil
 }

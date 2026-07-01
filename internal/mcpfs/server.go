@@ -34,6 +34,11 @@ func Serve(ctx context.Context, root string) error {
 		return fmt.Errorf("resolve root: %w", err)
 	}
 	abs = filepath.Clean(abs)
+	// Resolve the root's own symlinks up front so the prefix check in
+	// safeResolve compares real paths (e.g. /tmp -> /private/tmp on macOS).
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = real
+	}
 
 	srv := mcp.NewServer(&mcp.Implementation{Name: "agentbox-fs", Version: "0.1.0"}, nil)
 	registerTools(srv, abs)
@@ -100,10 +105,57 @@ func safeResolve(root, rel string) (string, error) {
 	clean := filepath.Clean(rel)
 	clean = strings.TrimPrefix(clean, string(filepath.Separator)) // treat absolute input as root-relative
 	full := filepath.Join(root, clean)
-	if full != root && !strings.HasPrefix(full, root+string(filepath.Separator)) {
+	if !withinRoot(root, full) {
+		return "", fmt.Errorf("path %q escapes the workspace root", rel)
+	}
+	// Lexical cleaning alone can't stop a symlink inside the jail from pointing
+	// outside it (run_bash shares this container and can create one). Resolve
+	// symlinks on both root and target and re-verify the real destination is
+	// still within the real root.
+	realRoot := root
+	if rr, err := filepath.EvalSymlinks(root); err == nil {
+		realRoot = rr
+	}
+	real, err := resolveReal(full)
+	if err != nil {
+		return "", err
+	}
+	if !withinRoot(realRoot, real) {
 		return "", fmt.Errorf("path %q escapes the workspace root", rel)
 	}
 	return full, nil
+}
+
+// withinRoot reports whether p is root itself or lies beneath it.
+func withinRoot(root, p string) bool {
+	return p == root || strings.HasPrefix(p, root+string(filepath.Separator))
+}
+
+// resolveReal returns p with symlinks resolved, tolerating a not-yet-existing
+// leaf: it resolves the longest existing ancestor (which is what an attacker
+// could have pointed elsewhere) and rejoins the remaining components. This lets
+// safeResolve guard paths that don't exist yet without falsely rejecting them.
+func resolveReal(p string) (string, error) {
+	cur := p
+	var tail []string
+	for {
+		if _, err := os.Lstat(cur); err == nil {
+			real, err := filepath.EvalSymlinks(cur)
+			if err != nil {
+				return "", err
+			}
+			for i := len(tail) - 1; i >= 0; i-- {
+				real = filepath.Join(real, tail[i])
+			}
+			return real, nil
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p, nil // nothing along the path exists; lexical form stands
+		}
+		tail = append(tail, filepath.Base(cur))
+		cur = parent
+	}
 }
 
 func listDir(root, rel string) (string, error) {

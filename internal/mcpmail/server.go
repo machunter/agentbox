@@ -120,6 +120,9 @@ func CheckConnection(ctx context.Context) (string, error) {
 func (s *server) withClient(fn func(*imapclient.Client) (string, error)) (string, error) {
 	var opts *imapclient.Options
 	if os.Getenv("AGENTBOX_IMAP_DEBUG") != "" {
+		// The raw protocol trace includes the LOGIN command with the password in
+		// cleartext. Warn so it isn't left on in a long-running deployment.
+		fmt.Fprintln(os.Stderr, "WARNING: AGENTBOX_IMAP_DEBUG traces the IMAP password to stderr; do not enable in production")
 		opts = &imapclient.Options{DebugWriter: os.Stderr} // raw protocol trace to stderr
 	}
 	client, err := imapclient.DialTLS(s.cfg.Host+":"+s.cfg.Port, opts)

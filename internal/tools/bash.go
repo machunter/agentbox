@@ -8,7 +8,9 @@ package tools
 import (
 	"bytes"
 	"context"
+	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -19,6 +21,11 @@ import (
 
 // bashTimeout bounds how long a single command may run before it is killed.
 const bashTimeout = 60 * time.Second
+
+// maxOutputBytes caps the combined stdout+stderr a single command may buffer.
+// A runaway or verbose command (e.g. `yes`) would otherwise grow unbounded for
+// the full timeout and risk exhausting container memory.
+const maxOutputBytes = 1 << 20 // 1 MiB
 
 // BashArgs is the input the model produces for a run_bash call.
 type BashArgs struct {
@@ -64,9 +71,10 @@ func runBash(tc agent.ToolContext, args BashArgs) (BashResult, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", args.Command)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	cmd.Env = safeEnv() // don't hand the model our API keys / OAuth tokens
+	out := &cappedBuffer{max: maxOutputBytes}
+	cmd.Stdout = out
+	cmd.Stderr = out
 	err := cmd.Run()
 
 	res := BashResult{Output: out.String()}
@@ -79,4 +87,69 @@ func runBash(tc agent.ToolContext, args BashArgs) (BashResult, error) {
 		res.Output = "[command produced no output]"
 	}
 	return res, nil
+}
+
+// secretEnvMarkers name the substrings that flag an environment variable as
+// carrying a credential. run_bash executes model-authored commands over
+// untrusted input (emails, Slack, calendar invites), so a prompt-injected run
+// could otherwise exfiltrate every secret via `env`/`curl`. We strip these
+// rather than pass an allowlist so the agent's self-built tools keep whatever
+// benign config they rely on.
+var secretEnvMarkers = []string{"KEY", "TOKEN", "SECRET", "PASS", "PASSWORD", "CREDENTIAL"}
+
+// safeEnv returns the process environment with credential-bearing variables
+// removed, so run_bash can't leak them.
+func safeEnv() []string {
+	env := os.Environ()
+	kept := make([]string, 0, len(env))
+	for _, kv := range env {
+		name := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			name = kv[:i]
+		}
+		upper := strings.ToUpper(name)
+		secret := false
+		for _, m := range secretEnvMarkers {
+			if strings.Contains(upper, m) {
+				secret = true
+				break
+			}
+		}
+		if !secret {
+			kept = append(kept, kv)
+		}
+	}
+	return kept
+}
+
+// cappedBuffer is an io.Writer that accumulates up to max bytes, then discards
+// the rest (recording that truncation happened). It bounds command output so a
+// verbose command can't exhaust memory.
+type cappedBuffer struct {
+	buf       bytes.Buffer
+	max       int
+	truncated bool
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	if room := c.max - c.buf.Len(); room > 0 {
+		if len(p) > room {
+			c.buf.Write(p[:room])
+			c.truncated = true
+		} else {
+			c.buf.Write(p)
+		}
+	} else if len(p) > 0 {
+		c.truncated = true
+	}
+	// Report the full length as written so the command isn't killed with a
+	// short-write error; we're intentionally dropping the overflow.
+	return len(p), nil
+}
+
+func (c *cappedBuffer) String() string {
+	if c.truncated {
+		return c.buf.String() + "\n[output truncated at 1 MiB]"
+	}
+	return c.buf.String()
 }
