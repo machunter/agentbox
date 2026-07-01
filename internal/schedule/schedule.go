@@ -384,6 +384,11 @@ func (s *Scheduler) runTask(ctx context.Context, t Task) {
 		fmt.Fprintf(s.out, "[%s] task %q: setup failed: %v\n", now(), t.Name, err)
 		return
 	}
+	// Reap the agent's MCP subprocesses when the task ends; in the serve daemon
+	// they'd otherwise accumulate across runs.
+	if c, ok := ag.(interface{ Close() }); ok {
+		defer c.Close()
+	}
 	if err := ag.Run(runCtx, prompt); err != nil {
 		fmt.Fprintf(s.out, "[%s] task %q: failed: %v\n", now(), t.Name, err)
 		s.record(t.Name, failureBody(err))

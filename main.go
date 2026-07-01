@@ -229,6 +229,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
+		defer ag.Close()
 		if err := ag.Run(ctx, "Mark this todo as done: \""+phrase+"\""); err != nil {
 			fmt.Fprintln(os.Stderr, "\nerror:", err)
 			os.Exit(1)
@@ -274,6 +275,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+	defer ag.Close()
 	if err := ag.Run(ctx, task); err != nil {
 		fmt.Fprintln(os.Stderr, "\nerror:", err)
 		os.Exit(1)

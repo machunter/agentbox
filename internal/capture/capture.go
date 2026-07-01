@@ -118,6 +118,11 @@ func processOne(ctx context.Context, path, mime, prompt string, out io.Writer, f
 	if err != nil {
 		return fmt.Errorf("agent setup: %w", err)
 	}
+	// One agent per image; reap its MCP subprocess so a large inbox doesn't
+	// leave a trail of them behind.
+	if c, ok := ag.(interface{ Close() }); ok {
+		defer c.Close()
+	}
 	log.Debug("sending image to model for extraction")
 	return ag.RunWithImage(ctx, prompt, data, mime)
 }

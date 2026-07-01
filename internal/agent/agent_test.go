@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -115,4 +116,26 @@ func TestForNotesOption(t *testing.T) {
 	if !c.notesOnly() || c.notes {
 		t.Error("ForCapture() should be notes-only but not the notes-CLI profile")
 	}
+}
+
+// Close must kill the MCP subprocesses the agent launched (they'd otherwise
+// accumulate in the serve daemon), and be safe to call twice.
+func TestCloseReapsSubprocesses(t *testing.T) {
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	a := &Agent{cmds: []*exec.Cmd{cmd}}
+
+	a.Close()
+
+	// Wait returns once the process is reaped; a killed process yields an error.
+	if err := cmd.Wait(); err == nil {
+		t.Error("expected the killed subprocess to report a non-nil wait error")
+	}
+	if cmd.ProcessState == nil || cmd.ProcessState.Success() {
+		t.Error("subprocess should have been killed, not exited cleanly")
+	}
+
+	a.Close() // idempotent: no panic on a second call
 }

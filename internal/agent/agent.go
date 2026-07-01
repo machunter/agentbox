@@ -107,6 +107,21 @@ type Agent struct {
 	log      *slog.Logger
 	maxTurns int             // tool-call rounds before the safety stop
 	answer   strings.Builder // assistant prose from the current run (for journaling)
+	cmds     []*exec.Cmd     // MCP server subprocesses to reap on Close
+}
+
+// Close reaps the MCP server subprocesses this agent launched. It's a no-op in
+// one-shot CLI runs (process exit closes their stdin and they exit on their
+// own) but matters in the long-running serve daemon, which builds a fresh agent
+// per scheduled task — without this those subprocesses would accumulate. Safe
+// to call more than once.
+func (a *Agent) Close() {
+	for _, cmd := range a.cmds {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	}
+	a.cmds = nil
 }
 
 // Answer returns the assistant's closing summary from the most recent run: the
@@ -241,6 +256,7 @@ func New(ctx context.Context, out io.Writer, opts ...Option) (*Agent, error) {
 
 	var toolset []tool.Tool
 	var toolsets []tool.Toolset
+	var cmds []*exec.Cmd // MCP server subprocesses, reaped by Close
 	instruction := systemPrompt
 	var mem *memory.Service
 
@@ -250,7 +266,7 @@ func New(ctx context.Context, out io.Writer, opts ...Option) (*Agent, error) {
 		if o.notes {
 			instruction = notesPrompt
 		}
-		if nt := selfMCPToolset(out, "notes tools", "mcp-notes"); nt != nil {
+		if nt := selfMCPToolset(out, &cmds, "notes tools", "mcp-notes"); nt != nil {
 			toolsets = append(toolsets, nt)
 		}
 	} else {
@@ -269,24 +285,24 @@ func New(ctx context.Context, out io.Writer, opts ...Option) (*Agent, error) {
 
 		// Connectors served by local MCP servers (agentbox launching itself in a
 		// subcommand). Best-effort: skip any that fail to set up.
-		if fs := initFileTools(out); fs != nil {
+		if fs := initFileTools(out, &cmds); fs != nil {
 			toolsets = append(toolsets, fs)
 		}
-		if nt := selfMCPToolset(out, "notes tools", "mcp-notes"); nt != nil {
+		if nt := selfMCPToolset(out, &cmds, "notes tools", "mcp-notes"); nt != nil {
 			toolsets = append(toolsets, nt)
 		}
-		if mail := initMailTools(out); mail != nil {
+		if mail := initMailTools(out, &cmds); mail != nil {
 			toolsets = append(toolsets, mail)
 		}
-		if cal := initCalendarTools(out); cal != nil {
+		if cal := initCalendarTools(out, &cmds); cal != nil {
 			toolsets = append(toolsets, cal)
 		}
 		slackNote := ""
-		if slack := initSlackTools(out); slack != nil {
+		if slack := initSlackTools(out, &cmds); slack != nil {
 			toolsets = append(toolsets, slack)
 			slackNote = slackUserNote() // tell the agent the user's handle, if set
 		}
-		if gdrive := initGDriveTools(out); gdrive != nil {
+		if gdrive := initGDriveTools(out, &cmds); gdrive != nil {
 			toolsets = append(toolsets, gdrive)
 		}
 
@@ -340,13 +356,17 @@ func New(ctx context.Context, out io.Writer, opts ...Option) (*Agent, error) {
 		out:      out,
 		log:      log,
 		maxTurns: envInt("AGENTBOX_MAX_TOOL_CALLS", defaultMaxTurns),
+		cmds:     cmds,
 	}, nil
 }
 
 // selfMCPToolset launches agentbox in a subcommand as a local MCP server and
 // returns a toolset connected to it over stdio. Best-effort — returns nil (with
-// a notice) on failure so the agent still runs with its other tools.
-func selfMCPToolset(out io.Writer, label string, args ...string) tool.Toolset {
+// a notice) on failure so the agent still runs with its other tools. The
+// launched *exec.Cmd is appended to cmds so the caller can reap the subprocess
+// on Close (ADK's mcptoolset never shuts the session down itself, so in the
+// long-running serve daemon these would otherwise pile up per agent run).
+func selfMCPToolset(out io.Writer, cmds *[]*exec.Cmd, label string, args ...string) tool.Toolset {
 	self, err := os.Executable()
 	if err != nil {
 		self = os.Args[0]
@@ -361,35 +381,36 @@ func selfMCPToolset(out io.Writer, label string, args ...string) tool.Toolset {
 		fmt.Fprintf(out, "[%s: disabled — %v]\n", label, err)
 		return nil
 	}
+	*cmds = append(*cmds, cmd)
 	return ts
 }
 
 // initFileTools wires in the local filesystem MCP server, jailed to the working
 // directory.
-func initFileTools(out io.Writer) tool.Toolset {
+func initFileTools(out io.Writer, cmds *[]*exec.Cmd) tool.Toolset {
 	root, err := os.Getwd()
 	if err != nil {
 		root = "."
 	}
-	return selfMCPToolset(out, "file tools", "mcp-fs", root)
+	return selfMCPToolset(out, cmds, "file tools", "mcp-fs", root)
 }
 
 // initMailTools wires in the read-only email (IMAP) MCP server, but only when
 // IMAP credentials are configured — otherwise email is silently skipped.
-func initMailTools(out io.Writer) tool.Toolset {
+func initMailTools(out io.Writer, cmds *[]*exec.Cmd) tool.Toolset {
 	if !mcpmail.Configured() {
 		return nil
 	}
-	return selfMCPToolset(out, "email tools", "mcp-mail")
+	return selfMCPToolset(out, cmds, "email tools", "mcp-mail")
 }
 
 // initCalendarTools wires in the read-only calendar (ICS) MCP server, but only
 // when at least one calendar feed is configured.
-func initCalendarTools(out io.Writer) tool.Toolset {
+func initCalendarTools(out io.Writer, cmds *[]*exec.Cmd) tool.Toolset {
 	if !mcpcal.Configured() {
 		return nil
 	}
-	return selfMCPToolset(out, "calendar tools", "mcp-cal")
+	return selfMCPToolset(out, cmds, "calendar tools", "mcp-cal")
 }
 
 // slackUserNote tells the agent the user's Slack handle (AGENTBOX_SLACK_USER) so
@@ -404,20 +425,20 @@ func slackUserNote() string {
 
 // initSlackTools wires in the read-only Slack MCP server, but only when a Slack
 // token is configured — otherwise Slack is silently skipped.
-func initSlackTools(out io.Writer) tool.Toolset {
+func initSlackTools(out io.Writer, cmds *[]*exec.Cmd) tool.Toolset {
 	if !mcpslack.Configured() {
 		return nil
 	}
-	return selfMCPToolset(out, "slack tools", "mcp-slack")
+	return selfMCPToolset(out, cmds, "slack tools", "mcp-slack")
 }
 
 // initGDriveTools wires in the read-only Google Drive MCP server, but only when
 // Drive OAuth credentials are configured — otherwise Drive is silently skipped.
-func initGDriveTools(out io.Writer) tool.Toolset {
+func initGDriveTools(out io.Writer, cmds *[]*exec.Cmd) tool.Toolset {
 	if !mcpgdrive.Configured() {
 		return nil
 	}
-	return selfMCPToolset(out, "google drive tools", "mcp-gdrive")
+	return selfMCPToolset(out, cmds, "google drive tools", "mcp-gdrive")
 }
 
 // initMemory builds the local memory service and probes the embedder. It
