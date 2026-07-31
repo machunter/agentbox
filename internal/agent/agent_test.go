@@ -118,6 +118,30 @@ func TestForNotesOption(t *testing.T) {
 	}
 }
 
+// needsWrapUp must fire both when the run hit the tool-call cap AND when a run
+// otherwise ends with no closing text at all — the case that let scheduled
+// digests/emails vanish silently (a model call ending with no final summary
+// looked identical to a normal successful "done" run).
+func TestNeedsWrapUp(t *testing.T) {
+	cases := []struct {
+		name   string
+		capped bool
+		answer string
+		want   bool
+	}{
+		{"capped with an answer still needs a real summary", true, "partial notes", true},
+		{"capped with no answer needs one", true, "", true},
+		{"not capped, empty answer needs one", false, "", true},
+		{"not capped, whitespace-only answer needs one", false, "   \n", true},
+		{"not capped, real answer needs nothing", false, "here's your briefing", false},
+	}
+	for _, c := range cases {
+		if got := needsWrapUp(c.capped, c.answer); got != c.want {
+			t.Errorf("%s: needsWrapUp(%v, %q) = %v, want %v", c.name, c.capped, c.answer, got, c.want)
+		}
+	}
+}
+
 // Close must kill the MCP subprocesses the agent launched (they'd otherwise
 // accumulate in the serve daemon), and be safe to call twice.
 func TestCloseReapsSubprocesses(t *testing.T) {

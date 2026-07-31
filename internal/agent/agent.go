@@ -510,10 +510,17 @@ func (a *Agent) runContent(ctx context.Context, msg *genai.Content) error {
 		}
 	}
 
-	// If we stopped because of the cap, the model never got to write its closing
-	// summary, so a digest/journal would be empty. Ask it to summarize now with
-	// what it already has, so a capped run still produces output.
-	if capped {
+	// If we stopped because of the cap, or the run otherwise ended with no
+	// closing text at all — observed intermittently (e.g. with Gemini, after a
+	// long, retry-heavy tool-call history) — a digest/journal/email would be
+	// silently empty even though the run looks like a normal "done". Ask the
+	// model to summarize now with what it already has, and say so (even without
+	// AGENTBOX_DEBUG) so this no longer vanishes without a trace.
+	if needsWrapUp(capped, a.Answer()) {
+		if !capped {
+			fmt.Fprintln(a.out, "\n[run ended with no closing summary; requesting one]")
+			a.log.Warn("run ended with no closing summary", "tool_call_rounds", turns)
+		}
 		a.wrapUp(ctx)
 	}
 
@@ -522,14 +529,23 @@ func (a *Agent) runContent(ctx context.Context, msg *genai.Content) error {
 	return nil
 }
 
-// wrapUp requests a final summary after the tool-call cap was hit, so a capped
-// run still yields prose (its Answer) instead of nothing. Tools are discouraged
-// and the extra turns are tightly bounded.
+// needsWrapUp reports whether a finished run should get one more forced
+// summary turn: it hit the tool-call cap, or it otherwise ended with no
+// closing text at all. Either way, without a wrap-up the digest/journal/email
+// would be silently empty even though the run "succeeded" — this is what let
+// scheduled emails stop without any error ever being logged.
+func needsWrapUp(capped bool, answer string) bool {
+	return capped || strings.TrimSpace(answer) == ""
+}
+
+// wrapUp requests a final summary — after the tool-call cap was hit, or after a
+// run that otherwise ended with no closing text — so the run still yields
+// prose (its Answer) instead of nothing. Tools are discouraged and the extra
+// turns are tightly bounded.
 func (a *Agent) wrapUp(ctx context.Context) {
-	a.log.Debug("wrap-up: requesting final summary after cap")
+	a.log.Debug("wrap-up: requesting final summary")
 	msg := genai.NewContentFromText(
-		"You've reached the tool-call limit, so stop here. Do NOT call any more tools. "+
-			"Give me your summary now based on what you've already gathered.", genai.RoleUser)
+		"Stop here — do not call any more tools. Give me your summary now based on what you've already gathered.", genai.RoleUser)
 	a.answer.Reset()
 	bounded := 0
 	for ev, err := range a.runner.Run(ctx, userID, sessionID, msg, agent.RunConfig{}) {
