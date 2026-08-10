@@ -203,6 +203,12 @@ make compose-run TASK="add a todo to call the dentist, and note that I want to b
 make compose-run TASK="what's on my todo list? mark the dentist one done."
 ```
 
+Each todo records its capture date and origin in a trailing comment, e.g.
+`- [ ] Reply to Jary  <!-- 2026-08-10 src:slack:team-eng/1723456.123 -->`, so
+the daily sweep checks for your reply where the request came from rather than
+always scanning Sent mail. An item raised by mail and in Slack keeps both
+origins, and a reply at either one closes it.
+
 Completing a todo (via `done`, the agent, or the menu) **moves** it out of
 `todos.md` into a dated `todos/done/<date>.md` file, so the active list stays
 short and readable while finished work is archived by day. They're plain files,

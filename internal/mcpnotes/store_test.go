@@ -18,7 +18,7 @@ func TestStoreConcurrentAdds(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			if _, _, err := s.AddTodo(fmt.Sprintf("todo number %d", i)); err != nil {
+			if _, err := s.AddTodo(fmt.Sprintf("todo number %d", i), "manual"); err != nil {
 				t.Errorf("AddTodo: %v", err)
 			}
 		}(i)
@@ -60,11 +60,11 @@ not a todo
 }
 
 func TestAddTodo(t *testing.T) {
-	out := addTodo("", "call dentist", "2026-06-14")
+	out := addTodo("", "call dentist", "2026-06-14", nil)
 	if !strings.Contains(out, "- [ ] call dentist") || !strings.Contains(out, "2026-06-14") {
 		t.Fatalf("addTodo wrong: %q", out)
 	}
-	out = addTodo(out, "buy milk", "")
+	out = addTodo(out, "buy milk", "", nil)
 	todos := parseTodos(out)
 	if len(todos) != 2 {
 		t.Fatalf("want 2 todos after second add, got %d", len(todos))
@@ -97,25 +97,25 @@ func TestAddTodoSkipsNearDuplicate(t *testing.T) {
 	dir := t.TempDir()
 	s := NewStore(dir, dir, time.UTC)
 
-	added, _, err := s.AddTodo("Confirm ground truth dataset with Gimou for the accuracy report")
-	if err != nil || !added {
-		t.Fatalf("first add: added=%v err=%v", added, err)
+	res, err := s.AddTodo("Confirm ground truth dataset with Gimou for the accuracy report", "email:gimou")
+	if err != nil || !res.Added {
+		t.Fatalf("first add: added=%v err=%v", res.Added, err)
 	}
 	// A near-duplicate (reworded) is skipped and reports the existing todo.
-	added, dup, err := s.AddTodo("confirm the ground-truth dataset with Gimou for accuracy report")
+	res, err = s.AddTodo("confirm the ground-truth dataset with Gimou for accuracy report", "email:gimou")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if added {
+	if res.Added {
 		t.Error("near-duplicate should not have been added")
 	}
-	if dup == "" {
+	if res.Dup == "" {
 		t.Error("skip should report the conflicting todo's text")
 	}
 	// A genuinely different todo still adds.
-	added, _, err = s.AddTodo("Organize a demo of Kanu with Karan")
-	if err != nil || !added {
-		t.Fatalf("distinct add: added=%v err=%v", added, err)
+	res, err = s.AddTodo("Organize a demo of Kanu with Karan", "slack:product")
+	if err != nil || !res.Added {
+		t.Fatalf("distinct add: added=%v err=%v", res.Added, err)
 	}
 
 	list, _ := s.ListTodos(false)
@@ -129,7 +129,7 @@ func TestAddTodoSkipsRecentlyCompleted(t *testing.T) {
 	s := NewStore(dir, dir, time.UTC)
 
 	// File a todo, then complete it (moves it to done/<today>.md).
-	if _, _, err := s.AddTodo("Reply to Jary in #team-software-leadership about the roadmap"); err != nil {
+	if _, err := s.AddTodo("Reply to Jary in #team-software-leadership about the roadmap", "slack:team-software-leadership"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CompleteTodo("Jary"); err != nil {
@@ -138,14 +138,14 @@ func TestAddTodoSkipsRecentlyCompleted(t *testing.T) {
 
 	// Re-filing the same item (as a sweep would, re-seeing Jary's message) must
 	// be skipped — not resurrected — because it was just completed.
-	added, dup, err := s.AddTodo("reply to Jary in #team-software-leadership re the roadmap")
+	res, err := s.AddTodo("reply to Jary in #team-software-leadership re the roadmap", "slack:team-software-leadership")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if added {
+	if res.Added {
 		t.Error("a recently-completed item should not be re-added (resurrection)")
 	}
-	if dup == "" {
+	if res.Dup == "" {
 		t.Error("skip should report the completed todo it matched")
 	}
 	if list, _ := s.ListTodos(false); strings.Contains(list, "Jary") {
@@ -168,9 +168,9 @@ func TestRecentDoneWindowExcludesOld(t *testing.T) {
 	}
 
 	// Outside the window, the same task may legitimately recur — so it adds.
-	added, _, err := s.AddTodo("Quarterly board prep deck")
-	if err != nil || !added {
-		t.Fatalf("task completed outside the window should be addable: added=%v err=%v", added, err)
+	res, err := s.AddTodo("Quarterly board prep deck", "manual")
+	if err != nil || !res.Added {
+		t.Fatalf("task completed outside the window should be addable: added=%v err=%v", res.Added, err)
 	}
 }
 
@@ -226,10 +226,10 @@ func TestStoreRoundTrip(t *testing.T) {
 	s := NewStore(dir, dir, time.UTC)
 	doneToday := filepath.Join(dir, "done", time.Now().UTC().Format("2006-01-02")+".md")
 
-	if _, _, err := s.AddTodo("call dentist"); err != nil {
+	if _, err := s.AddTodo("call dentist", "manual"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.AddTodo("buy milk"); err != nil {
+	if _, err := s.AddTodo("buy milk", "manual"); err != nil {
 		t.Fatal(err)
 	}
 	list, err := s.ListTodos(false)
@@ -315,12 +315,147 @@ func TestArchivesHandMarkedDone(t *testing.T) {
 	}
 }
 
+// A todo's source has to survive the round trip through the markdown line, and
+// lines written before sources existed must read back as "unknown origin"
+// rather than erroring or inventing one.
+func TestTodoSourceRoundTrip(t *testing.T) {
+	line := addTodo("", "Reply to Jary about the roadmap", "2026-08-10", []string{"slack:team-eng/1723456.123"})
+	if !strings.Contains(line, "src:slack:team-eng/1723456.123") {
+		t.Fatalf("source not rendered: %q", line)
+	}
+	got := parseSources(line)
+	if len(got) != 1 || got[0] != "slack:team-eng/1723456.123" {
+		t.Errorf("parseSources = %v", got)
+	}
+	if d := todoDate(line); d != "2026-08-10" {
+		t.Errorf("todoDate = %q, want 2026-08-10", d)
+	}
+
+	// Legacy shapes: date-only, and no comment at all.
+	if got := parseSources("- [ ] call dentist  <!-- 2026-06-14 -->"); got != nil {
+		t.Errorf("date-only todo should have no sources, got %v", got)
+	}
+	if got := parseSources("- [ ] call dentist"); got != nil {
+		t.Errorf("bare todo should have no sources, got %v", got)
+	}
+	if d := todoDate("- [ ] call dentist  <!-- 2026-06-14 -->"); d != "2026-06-14" {
+		t.Errorf("legacy date lost: %q", d)
+	}
+}
+
+// withSources must rewrite only the source list, leaving the text and the
+// capture date intact.
+func TestWithSourcesPreservesTextAndDate(t *testing.T) {
+	line := "- [ ] Reply to Jary  <!-- 2026-08-10 src:email:jary -->"
+	got := withSources(line, []string{"email:jary", "slack:team-eng"})
+	if !strings.Contains(got, "- [ ] Reply to Jary  <!--") {
+		t.Errorf("text mangled: %q", got)
+	}
+	if !strings.Contains(got, "2026-08-10") {
+		t.Errorf("date lost: %q", got)
+	}
+	if srcs := parseSources(got); len(srcs) != 2 {
+		t.Errorf("want 2 sources, got %v", srcs)
+	}
+	// A todo that never had a comment gains one.
+	if got := withSources("- [ ] bare item", []string{"manual"}); !strings.Contains(got, "src:manual") {
+		t.Errorf("source not added to bare line: %q", got)
+	}
+}
+
+// A source label must not be able to break the one-line comment it lives in.
+func TestSanitizeSource(t *testing.T) {
+	for in, want := range map[string]string{
+		"slack:team eng":     "slack:team_eng",
+		"email:a,b":          "email:a;b",
+		"nasty --> injected": "nasty_injected",
+		"  slack:x  ":        "slack:x",
+	} {
+		if got := sanitizeSource(in); got != want {
+			t.Errorf("sanitizeSource(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The same request can arrive by mail and in Slack. Dedup keeps one todo, but
+// both origins must be recorded, since a reply at either one resolves it.
+func TestAddTodoMergesSourcesFromSecondOrigin(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir, dir, time.UTC)
+
+	if _, err := s.AddTodo("Send Casey the finalized data labeling deck", "email:casey"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.AddTodo("send the finalized data-labeling deck to Casey", "slack:design-review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Added {
+		t.Fatal("near-duplicate should not have created a second todo")
+	}
+	if !res.Merged {
+		t.Error("the second origin should have been recorded on the existing todo")
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "todos.md"))
+	if got := strings.Count(string(data), "- [ ] "); got != 1 {
+		t.Fatalf("want 1 todo, got %d:\n%s", got, data)
+	}
+	srcs := parseSources(string(data))
+	if len(srcs) != 2 || srcs[0] != "email:casey" || srcs[1] != "slack:design-review" {
+		t.Errorf("want both origins recorded, got %v:\n%s", srcs, data)
+	}
+
+	// Re-filing from an origin already recorded changes nothing.
+	res, err = s.AddTodo("send finalized data labeling deck to Casey", "email:casey")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Merged {
+		t.Error("an origin already on the todo should not count as a merge")
+	}
+}
+
+// Completing a todo must carry its sources into the done file, so a later
+// resurrection check can still see where the item came from.
+func TestCompleteTodoKeepsSources(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir, dir, time.UTC)
+
+	if _, err := s.AddTodo("Reply to Jary about the roadmap", "slack:team-eng/1723456.123"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CompleteTodo("Jary"); err != nil {
+		t.Fatal(err)
+	}
+	doneData, err := os.ReadFile(filepath.Join(dir, "done", time.Now().UTC().Format("2006-01-02")+".md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(doneData), "src:slack:team-eng/1723456.123") {
+		t.Errorf("source lost on completion: %q", doneData)
+	}
+}
+
+// The src: tag is metadata, not content: it must not shift dedup either way.
+func TestSourceTagDoesNotAffectDedup(t *testing.T) {
+	withSrc := "Reply to Jary about the roadmap  <!-- 2026-08-10 src:slack:team-eng -->"
+	if got := similarTodo([]Todo{{Text: withSrc}}, "reply to Jary re the roadmap"); got == "" {
+		t.Error("a reworded duplicate should still match a source-tagged todo")
+	}
+	// Two distinct todos from the same channel must not merge on the tag alone.
+	a := "Book the Bodrum villa  <!-- 2026-08-10 src:slack:team-eng -->"
+	if got := similarTodo([]Todo{{Text: a}}, "Draft the Q3 board deck"); got != "" {
+		t.Errorf("distinct todos sharing a source wrongly matched: %q", got)
+	}
+}
+
 func TestTodosAndNotesUseSeparateDirs(t *testing.T) {
 	todosDir := t.TempDir()
 	notesDir := t.TempDir()
 	s := NewStore(todosDir, notesDir, time.UTC)
 
-	if _, _, err := s.AddTodo("call dentist"); err != nil {
+	if _, err := s.AddTodo("call dentist", "manual"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddNote("idea about caching", "2026-06-28 09:00"); err != nil {

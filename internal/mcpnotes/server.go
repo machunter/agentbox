@@ -46,7 +46,8 @@ type server struct {
 // --- tool inputs ---
 
 type addTodoInput struct {
-	Text string `json:"text" jsonschema:"the todo to add"`
+	Text   string `json:"text" jsonschema:"the todo to add"`
+	Source string `json:"source" jsonschema:"where this came from, so a later sweep looks for the reply in the right place: slack:<channel> (append /<thread-ts> for a thread), email:<sender>, calendar, capture, or manual. Omit only when the origin is genuinely unknown."`
 }
 
 type listTodosInput struct {
@@ -68,16 +69,20 @@ type searchNotesInput struct {
 func (s *server) registerTools(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "add_todo",
-		Description: "Add a todo item to the user's todo list. Near-duplicates of an existing open todo, OR of one completed in the last ~30 days, are skipped (the response says so) — so re-filing the same item from another source, or one you already handled, won't create a repeat.",
+		Description: "Add a todo item to the user's todo list, tagged with the source it came from. Near-duplicates of an existing open todo, OR of one completed in the last ~30 days, are skipped (the response says so) — so re-filing the same item from another source, or one you already handled, won't create a repeat. When it matches an open todo, the new source is recorded on that todo, so an item raised both by mail and in Slack keeps both origins.",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in addTodoInput) (*mcp.CallToolResult, any, error) {
-		added, dup, err := s.store.AddTodo(in.Text)
+		res, err := s.store.AddTodo(in.Text, in.Source)
 		if err != nil {
 			return errResult(err), nil, nil
 		}
-		if !added {
-			return textResult(fmt.Sprintf("skipped — matches an existing open or recently completed todo (already handled): %q", dup)), nil, nil
+		switch {
+		case res.Added:
+			return textResult("added todo: " + in.Text), nil, nil
+		case res.Merged:
+			return textResult(fmt.Sprintf("not added — matches open todo %q; recorded %q as another source for it", res.Dup, in.Source)), nil, nil
+		default:
+			return textResult(fmt.Sprintf("skipped — matches an existing open or recently completed todo (already handled): %q", res.Dup)), nil, nil
 		}
-		return textResult("added todo: " + in.Text), nil, nil
 	})
 
 	mcp.AddTool(srv, &mcp.Tool{

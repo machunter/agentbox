@@ -339,6 +339,19 @@ make compose-run TASK="add a todo to call the dentist and note that I want to ba
 make compose-run TASK="show my todos, then mark the dentist one done"
 ```
 
+Each todo carries a trailing HTML comment with the date it was captured and
+where it came from:
+
+```markdown
+- [ ] Reply to Jary about the roadmap  <!-- 2026-08-10 src:slack:team-eng/1723456.123 -->
+```
+
+The `src:` tag is what lets a later sweep look for your reply in the right
+place: Slack for a Slack-sourced todo, Sent mail for an email one. An item
+raised in both places keeps both, comma separated, and a reply at either one
+closes it. Todos written before this existed have a date and no `src:`, and are
+checked in Sent mail as before.
+
 Because they're plain files, you can also open and edit them in any editor —
 flip `- [ ]` to `- [x]` in `todos.md` to mark something done. From the CLI:
 

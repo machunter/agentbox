@@ -56,37 +56,60 @@ type Todo struct {
 
 // --- file-backed operations ---
 
-// AddTodo appends a new open todo. It writes nothing and returns added=false
-// (with dup set to the conflicting todo's text) when the new item is a
-// near-duplicate of either an existing open todo OR one completed within the
-// dedup window. The open check stops the same item arriving from two sources
-// (email update + Slack mention); the completed check stops "resurrection" — a
-// source message re-seen during a multi-day sweep being re-filed after its todo
-// was already done and archived out of the open list.
-func (s *Store) AddTodo(text string) (added bool, dup string, err error) {
+// AddResult reports what AddTodo did with an item.
+type AddResult struct {
+	Added  bool   // a new todo was written
+	Dup    string // the existing todo this matched, when not added
+	Merged bool   // the item's source was recorded on that existing todo
+}
+
+// AddTodo appends a new open todo, tagged with where it came from (source may be
+// empty when unknown). It writes no new item and returns Added=false (with Dup
+// set to the conflicting todo's text) when the item is a near-duplicate of either
+// an existing open todo OR one completed within the dedup window. The open check
+// stops the same item arriving from two sources (email update + Slack mention);
+// the completed check stops "resurrection" — a source message re-seen during a
+// multi-day sweep being re-filed after its todo was already done and archived out
+// of the open list.
+//
+// Matching an open todo still records the new source on it (Merged=true), since
+// the same request can legitimately arrive by mail and in Slack and a reply at
+// either place resolves it. That is why sources are a list, not one field.
+func (s *Store) AddTodo(text, source string) (AddResult, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return false, "", fmt.Errorf("todo text is empty")
+		return AddResult{}, fmt.Errorf("todo text is empty")
 	}
+	source = sanitizeSource(source)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, err := s.archiveDoneLocked(); err != nil {
-		return false, "", err
+		return AddResult{}, err
 	}
 	content, err := s.read(s.todosDir, todosFile)
 	if err != nil {
-		return false, "", err
+		return AddResult{}, err
 	}
 	if existing := similarTodo(parseTodos(content), text); existing != "" {
-		return false, existing, nil
+		updated, changed := addSourceToLine(content, existing, source)
+		if changed {
+			if err := s.write(s.todosDir, todosFile, updated); err != nil {
+				return AddResult{}, err
+			}
+		}
+		return AddResult{Dup: existing, Merged: changed}, nil
 	}
 	if existing := similarText(s.recentDoneTextsLocked(dedupWindowDays), text); existing != "" {
-		return false, existing, nil
+		return AddResult{Dup: existing}, nil
 	}
-	if err := s.write(s.todosDir, todosFile, addTodo(content, text, s.today())); err != nil {
-		return false, "", err
+	var sources []string
+	if source != "" {
+		sources = []string{source}
 	}
-	return true, "", nil
+	if err := s.write(s.todosDir, todosFile, addTodo(content, text, s.today(), sources)); err != nil {
+		return AddResult{}, err
+	}
+	return AddResult{Added: true}, nil
 }
 
 func (s *Store) ListTodos(includeDone bool) (string, error) {
@@ -412,10 +435,139 @@ func (s *Store) recentDoneTextsLocked(days int) []string {
 	return texts
 }
 
-func addTodo(content, text, date string) string {
-	line := "- [ ] " + text
+// srcPrefix marks the source list inside a todo's trailing HTML comment:
+//
+//	- [ ] Reply to Jary about the roadmap  <!-- 2026-08-10 src:slack:team-eng/1723456.123 -->
+//
+// Sources say where the item came from, so a later sweep looks for the reply in
+// the place that asked for it rather than always scanning Sent mail. Todos
+// written before this existed carry a date and no src, which readers treat as
+// "unknown origin".
+const srcPrefix = "src:"
+
+// sanitizeSource normalizes a source label so it survives round-tripping through
+// the one-line HTML comment: no whitespace, no commas (the list separator), and
+// no comment terminator.
+// Strip the comment terminator before collapsing whitespace, so removing it
+// can't leave a doubled separator behind ("a --> b" becomes "a_b", not "a__b").
+func sanitizeSource(s string) string {
+	s = strings.ReplaceAll(s, "-->", "")
+	s = strings.ReplaceAll(s, ",", ";")
+	return strings.Join(strings.Fields(s), "_")
+}
+
+// todoComment returns the body of a todo's trailing HTML comment, without the
+// delimiters, or "" when there is none.
+func todoComment(text string) string {
+	i := strings.Index(text, "<!--")
+	if i < 0 {
+		return ""
+	}
+	rest := text[i+len("<!--"):]
+	j := strings.Index(rest, "-->")
+	if j < 0 {
+		return ""
+	}
+	return strings.TrimSpace(rest[:j])
+}
+
+// parseSources returns the sources recorded on a todo, or nil when its origin is
+// unknown (including every todo written before sources existed).
+func parseSources(text string) []string {
+	for _, f := range strings.Fields(todoComment(text)) {
+		if !strings.HasPrefix(f, srcPrefix) {
+			continue
+		}
+		var out []string
+		for _, s := range strings.Split(strings.TrimPrefix(f, srcPrefix), ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// todoDate returns the capture date recorded on a todo, or "".
+func todoDate(text string) string {
+	for _, f := range strings.Fields(todoComment(text)) {
+		if !strings.HasPrefix(f, srcPrefix) {
+			return f
+		}
+	}
+	return ""
+}
+
+// metaComment renders a todo's trailing comment from its capture date and
+// sources, or "" when there is nothing to record.
+func metaComment(date string, sources []string) string {
+	var parts []string
 	if date != "" {
-		line += fmt.Sprintf("  <!-- %s -->", date)
+		parts = append(parts, date)
+	}
+	if len(sources) > 0 {
+		parts = append(parts, srcPrefix+strings.Join(sources, ","))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "<!-- " + strings.Join(parts, " ") + " -->"
+}
+
+// withSources rewrites a todo line to record exactly sources, keeping its text
+// and capture date.
+func withSources(line string, sources []string) string {
+	body := line
+	if i := strings.Index(line, "<!--"); i >= 0 {
+		body = strings.TrimRight(line[:i], " ")
+	}
+	if c := metaComment(todoDate(line), sources); c != "" {
+		return body + "  " + c
+	}
+	return body
+}
+
+// mergeSource appends source to sources when it isn't already there, reporting
+// whether anything changed. An empty source never changes anything.
+func mergeSource(sources []string, source string) ([]string, bool) {
+	if source == "" {
+		return sources, false
+	}
+	for _, s := range sources {
+		if strings.EqualFold(s, source) {
+			return sources, false
+		}
+	}
+	return append(sources, source), true
+}
+
+// addSourceToLine records source on the open todo whose text is todoText,
+// returning the updated content and whether it changed.
+func addSourceToLine(content, todoText, source string) (string, bool) {
+	if source == "" {
+		return content, false
+	}
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		t := strings.TrimSpace(line)
+		if !strings.HasPrefix(t, "- [ ] ") || strings.TrimSpace(t[6:]) != todoText {
+			continue
+		}
+		sources, changed := mergeSource(parseSources(t), source)
+		if !changed {
+			return content, false
+		}
+		lines[i] = withSources(line, sources)
+		return joinLines(lines), true
+	}
+	return content, false
+}
+
+func addTodo(content, text, date string, sources []string) string {
+	line := "- [ ] " + text
+	if c := metaComment(date, sources); c != "" {
+		line += "  " + c
 	}
 	return appendLine(content, line)
 }
