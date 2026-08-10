@@ -357,6 +357,7 @@ send-to-anyone capability.
 | `AGENTBOX_SLACK_TIMEOUT` | `30` | Seconds for a single Slack API request. |
 | `AGENTBOX_GDRIVE_CLIENT_ID` / `_CLIENT_SECRET` | — | Google OAuth client for Drive; with the refresh token, enables the Drive tools. |
 | `AGENTBOX_GDRIVE_REFRESH_TOKEN` | — | Drive OAuth refresh token from `agentbox gdrive-login`; stored locally, refreshed silently. |
+| `AGENTBOX_GDRIVE_LOGIN_ADDR` | `localhost:8765` | Listen address for the `gdrive-login` callback server; set `0.0.0.0:8765` to run the login inside the container. |
 | `AGENTBOX_TIMEZONE` | `UTC` | Timezone for day boundaries, event times, and cron schedules. |
 | `AGENTBOX_SCHEDULE` | — | Path to the schedule YAML (required for `serve` / `run-task`). |
 | `AGENTBOX_MAX_TOOL_CALLS` | `50` | Max tool-call rounds before a run is stopped (then it's asked to summarize). Raise for busy work mailboxes. |

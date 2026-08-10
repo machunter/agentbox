@@ -294,12 +294,20 @@ refresh token:
    AGENTBOX_GDRIVE_CLIENT_ID=...apps.googleusercontent.com
    AGENTBOX_GDRIVE_CLIENT_SECRET=...
    ```
-4. Get the refresh token (run **on your laptop**, where a browser can open — not
-   in the headless container). With the two vars exported:
+4. Get the refresh token. Google always sends the consent redirect to
+   `http://localhost:8765/callback`, so a browser has to reach that port. On your
+   laptop, with the two vars exported:
    ```sh
    agentbox gdrive-login        # or: make build && ./agentbox gdrive-login
    ```
-   It prints a URL; authorize in the browser; it then prints
+   To run the login inside the container instead, bind the callback server to all
+   interfaces and publish the port back to `localhost:8765`:
+   ```sh
+   docker compose run --rm -p 127.0.0.1:8765:8765 \
+     -e AGENTBOX_GDRIVE_LOGIN_ADDR=0.0.0.0:8765 \
+     --entrypoint agentbox agentbox gdrive-login
+   ```
+   Either way it prints a URL; authorize in the browser; it then prints
    `AGENTBOX_GDRIVE_REFRESH_TOKEN=...`. Paste that into `.env` too.
 5. Verify (works in the container):
    ```sh
@@ -610,6 +618,7 @@ container path.
 | `AGENTBOX_SLACK_TIMEOUT` | Seconds for a single Slack API request (default 30). |
 | `AGENTBOX_GDRIVE_CLIENT_ID` / `_CLIENT_SECRET` | Google OAuth client (Drive). Enables the Drive tools together with the refresh token. |
 | `AGENTBOX_GDRIVE_REFRESH_TOKEN` | Drive OAuth refresh token from `agentbox gdrive-login`. Kept local; refreshed silently per run. |
+| `AGENTBOX_GDRIVE_LOGIN_ADDR` | Listen address for the `gdrive-login` callback server (default `localhost:8765`). Set `0.0.0.0:8765` to run the login inside the container. |
 | `AGENTBOX_TIMEZONE` | Timezone for day boundaries and cron (e.g. `America/Los_Angeles`). |
 | `AGENTBOX_TODOS_DIR` | Where `todos.md` + `done/` live (default `todos/`). |
 | `AGENTBOX_NOTES_DIR` | Where `inbox.md` (free-form notes) lives (default `notes/`). |

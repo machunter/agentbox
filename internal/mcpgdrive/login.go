@@ -12,11 +12,17 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// Login runs a one-time OAuth consent flow on the local machine and prints the
-// resulting refresh token for the user to store in AGENTBOX_GDRIVE_REFRESH_TOKEN.
-// It needs AGENTBOX_GDRIVE_CLIENT_ID/SECRET set. A loopback HTTP server captures
-// the redirect, so this must run somewhere with a browser (the user's machine),
-// not inside the headless container.
+// Login runs a one-time OAuth consent flow and prints the resulting refresh
+// token for the user to store in AGENTBOX_GDRIVE_REFRESH_TOKEN. It needs
+// AGENTBOX_GDRIVE_CLIENT_ID/SECRET set. An HTTP server captures the OAuth
+// redirect, and Google always redirects the browser to the loopback host
+// (http://localhost:8765/callback), so a browser must be reachable.
+//
+// By default the server binds to that same loopback host, which is right when
+// running the binary directly on the user's machine. To run login inside the
+// headless container instead, set AGENTBOX_GDRIVE_LOGIN_ADDR=0.0.0.0:8765 and
+// publish the port (docker compose run --rm -p 127.0.0.1:8765:8765 ...): the
+// host browser's redirect to localhost:8765 is then forwarded to the container.
 func Login(ctx context.Context) error {
 	clientID := strings.TrimSpace(os.Getenv("AGENTBOX_GDRIVE_CLIENT_ID"))
 	clientSecret := strings.TrimSpace(os.Getenv("AGENTBOX_GDRIVE_CLIENT_SECRET"))
@@ -25,9 +31,15 @@ func Login(ctx context.Context) error {
 	}
 	conf := Config{ClientID: clientID, ClientSecret: clientSecret}.oauthConfig()
 
-	ln, err := net.Listen("tcp", loopbackAddr)
+	// The redirect always targets loopbackAddr; the listen address may differ so
+	// the server can sit behind a published container port (see doc comment).
+	listenAddr := strings.TrimSpace(os.Getenv("AGENTBOX_GDRIVE_LOGIN_ADDR"))
+	if listenAddr == "" {
+		listenAddr = loopbackAddr
+	}
+	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
-		return fmt.Errorf("listen on %s (is another login running?): %w", loopbackAddr, err)
+		return fmt.Errorf("listen on %s (is another login running?): %w", listenAddr, err)
 	}
 	defer ln.Close()
 
