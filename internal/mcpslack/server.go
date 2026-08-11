@@ -93,6 +93,8 @@ type server struct {
 	// In-process caches so the several tool calls in one run don't re-resolve
 	// the same channels/users. The server is short-lived (one run).
 	mu        sync.Mutex
+	meID      string               // authenticated user's ID, for marking own messages
+	meFetched bool                 // auth.test attempted (a failed lookup isn't retried)
 	userName  map[string]string    // user ID -> display name
 	chanByID  map[string]string    // channel ID -> name
 	chanLists map[string][]channel // cached users.conversations results, by normalized types
@@ -171,7 +173,7 @@ func (s *server) registerTools(srv *mcp.Server) {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "read_channel",
-		Description: "Read recent messages in a Slack channel (chronological), with sender and time. Accepts a channel name or ID.",
+		Description: "Read recent messages in a Slack channel (chronological), with sender and time. Accepts a channel name or ID. The user's own messages are marked \"(you)\", so use that to tell whether they already replied.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in readChannelInput) (*mcp.CallToolResult, any, error) {
 		out, err := s.readChannel(ctx, in.Channel, clampLimit(in.Limit, defaultHistoryLimit), in.SinceDays)
 		return textResult(out, err), nil, nil
@@ -179,7 +181,7 @@ func (s *server) registerTools(srv *mcp.Server) {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "read_thread",
-		Description: "Read all replies in a Slack thread, given the channel and the parent message's ts.",
+		Description: "Read all replies in a Slack thread, given the channel and the parent message's ts. The user's own messages are marked \"(you)\", so use that to tell whether they already replied.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in readThreadInput) (*mcp.CallToolResult, any, error) {
 		out, err := s.readThread(ctx, in.Channel, in.ThreadTS)
 		return textResult(out, err), nil, nil
@@ -187,7 +189,7 @@ func (s *server) registerTools(srv *mcp.Server) {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "search_messages",
-		Description: "Search Slack messages matching a query, newest first, with channel, sender, and time. Requires a user token (xoxp-).",
+		Description: "Search Slack messages matching a query, newest first, with channel, sender, and time. The user's own messages are marked \"(you)\". Requires a user token (xoxp-).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in searchInput) (*mcp.CallToolResult, any, error) {
 		out, err := s.searchMessages(ctx, in.Query, clampLimit(in.Count, defaultSearchCount))
 		return textResult(out, err), nil, nil
@@ -223,7 +225,7 @@ func (s *server) readChannel(ctx context.Context, ref string, limit, sinceDays i
 	if len(out.Messages) == 0 {
 		return "(no messages)", nil
 	}
-	return formatMessages(reversed(out.Messages), s.nameResolver(ctx), s.cfg.Loc), nil
+	return formatMessages(reversed(out.Messages), s.nameResolver(ctx), s.cfg.Loc, s.me(ctx)), nil
 }
 
 func (s *server) readThread(ctx context.Context, ref, threadTS string) (string, error) {
@@ -242,7 +244,7 @@ func (s *server) readThread(ctx context.Context, ref, threadTS string) (string, 
 	if len(out.Messages) == 0 {
 		return "(no replies)", nil
 	}
-	return formatMessages(out.Messages, s.nameResolver(ctx), s.cfg.Loc), nil
+	return formatMessages(out.Messages, s.nameResolver(ctx), s.cfg.Loc, s.me(ctx)), nil
 }
 
 func (s *server) searchMessages(ctx context.Context, query string, count int) (string, error) {
@@ -257,7 +259,33 @@ func (s *server) searchMessages(ctx context.Context, query string, count int) (s
 	if len(out.Messages.Matches) == 0 {
 		return fmt.Sprintf("no messages matching %q", query), nil
 	}
-	return formatMatches(out.Messages.Matches, s.cfg.Loc), nil
+	return formatMatches(out.Messages.Matches, s.cfg.Loc, s.me(ctx)), nil
+}
+
+// me returns the authenticated user's Slack ID, cached for the run, so message
+// formatting can mark the owner's own posts. Best effort: on any failure it
+// returns "" and messages are rendered unmarked rather than the tool failing,
+// since an unmarked transcript is still useful.
+func (s *server) me(ctx context.Context) string {
+	s.mu.Lock()
+	if s.meFetched {
+		defer s.mu.Unlock()
+		return s.meID
+	}
+	s.mu.Unlock()
+
+	var out authTestResp
+	id := ""
+	if err := s.call(ctx, "auth.test", nil, &out); err != nil {
+		fmt.Fprintf(os.Stderr, "mcp-slack: auth.test: %v — own messages won't be marked\n", err)
+	} else {
+		id = out.UserID
+	}
+
+	s.mu.Lock()
+	s.meID, s.meFetched = id, true
+	s.mu.Unlock()
+	return id
 }
 
 // channels returns the caller's conversations of the given types, cached for the

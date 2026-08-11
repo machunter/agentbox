@@ -37,9 +37,10 @@ func (r slackResponse) errMessage() string {
 
 type authTestResp struct {
 	slackResponse
-	User string `json:"user"`
-	Team string `json:"team"`
-	URL  string `json:"url"`
+	User   string `json:"user"`
+	UserID string `json:"user_id"` // used to mark the owner's own messages
+	Team   string `json:"team"`
+	URL    string `json:"url"`
 }
 
 type channel struct {
@@ -208,7 +209,12 @@ func formatChannels(chans []channel) string {
 
 // formatMessages renders a transcript (assumed chronological), one message per
 // line, resolving sender IDs and in-text mentions via nameOf.
-func formatMessages(msgs []message, nameOf func(string) string, loc *time.Location) string {
+// formatMessages renders a transcript. Messages from me (the authenticated
+// user's ID, empty when unknown) are marked "(you)": deciding whether the owner
+// already replied is the whole point of the todo sweep, and matching a rendered
+// display name against a configured handle is guesswork the connector can settle
+// outright.
+func formatMessages(msgs []message, nameOf func(string) string, loc *time.Location, me string) string {
 	if len(msgs) == 0 {
 		return "(no messages)"
 	}
@@ -217,6 +223,9 @@ func formatMessages(msgs []message, nameOf func(string) string, loc *time.Locati
 		who := m.sender()
 		if m.User != "" {
 			who = nameOf(m.User)
+		}
+		if me != "" && m.User == me {
+			who += " (you)"
 		}
 		text := resolveMentions(strings.TrimSpace(m.Text), nameOf)
 		if text == "" {
@@ -235,7 +244,7 @@ func nonText(m message) string {
 	return "no text"
 }
 
-func formatMatches(matches []searchMatch, loc *time.Location) string {
+func formatMatches(matches []searchMatch, loc *time.Location, me string) string {
 	if len(matches) == 0 {
 		return "(no matches)"
 	}
@@ -244,6 +253,9 @@ func formatMatches(matches []searchMatch, loc *time.Location) string {
 		who := m.Username
 		if who == "" {
 			who = m.User
+		}
+		if me != "" && m.User == me {
+			who += " (you)"
 		}
 		fmt.Fprintf(&b, "[%s] #%s %s: %s\n", fmtTS(m.TS, loc), m.Channel.Name, who, strings.TrimSpace(m.Text))
 	}

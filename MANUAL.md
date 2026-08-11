@@ -256,6 +256,10 @@ is missing a scope you'll see `missing_scope` — add it and reinstall. (Channel
 listing degrades gracefully: with only `channels:read`, it lists public channels
 and skips private ones rather than failing.)
 
+Your own messages are marked `(you)` in transcripts and search results, which is
+how the todo sweep tells that you already replied in a thread rather than
+guessing from display names.
+
 Listing covers the channels **the token's identity has joined**, not every
 channel in the workspace: with a user token that's your channels, with a bot
 token it's the ones the bot was invited to. A channel you haven't joined won't
@@ -360,6 +364,14 @@ place: Slack for a Slack-sourced todo, Sent mail for an email one. An item
 raised in both places keeps both, comma separated, and a reply at either one
 closes it. Todos written before this existed have a date and no `src:`, and are
 checked in Sent mail as before.
+
+Email sources carry the message UID (`src:email:jary#4821`), which the sweep uses
+for a shortcut: **if you delete the mail, the todo goes away.** Before hunting
+for a reply it asks whether the message is still in your inbox, and a message
+you deleted (or filed elsewhere) is treated as an answer in itself, so the todo
+is closed. Clearing the inbox is therefore a way to dismiss todos in bulk. The
+flip side: if you archive mail you still intend to act on, its todo closes too,
+so keep those in the inbox or add them by hand with `agentbox todo`.
 
 Because they're plain files, you can also open and edit them in any editor —
 flip `- [ ]` to `- [x]` in `todos.md` to mark something done. From the CLI:

@@ -159,6 +159,11 @@ type readInput struct {
 	Mailbox string `json:"mailbox" jsonschema:"mailbox the message is in; empty means INBOX. Aliases Sent/Drafts/Trash/Junk/Archive resolve to the provider's actual folder"`
 }
 
+type existsInput struct {
+	UID     uint32 `json:"uid" jsonschema:"the UID of the message to check (from an earlier list/search, or a todo's src tag)"`
+	Mailbox string `json:"mailbox" jsonschema:"mailbox to check; empty means INBOX. Aliases Sent/Drafts/Trash/Junk/Archive resolve to the provider's actual folder"`
+}
+
 type listMailboxesInput struct{}
 
 type listNewInput struct {
@@ -204,6 +209,14 @@ func (s *server) registerTools(srv *mcp.Server) {
 		Description: "Read a single email by UID, returning its headers and plain-text body.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in readInput) (*mcp.CallToolResult, any, error) {
 		out, err := s.read(ctx, in.UID, mailboxOr(in.Mailbox))
+		return textResult(out, err), nil, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "email_exists",
+		Description: "Check whether a message UID is still in a mailbox (INBOX by default), without reading it. Use it on a todo that came from email before hunting for a reply: if the message is gone from the inbox the user deleted or filed it, which means it no longer needs doing and the todo can be closed.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in existsInput) (*mcp.CallToolResult, any, error) {
+		out, err := s.exists(ctx, in.UID, mailboxOr(in.Mailbox))
 		return textResult(out, err), nil, nil
 	})
 }
@@ -373,6 +386,47 @@ func (s *server) search(_ context.Context, query, mailbox string, limit, sinceDa
 		}
 		return formatList(msgs), nil
 	})
+}
+
+// exists reports whether uid is still in mailbox. It fetches the envelope only,
+// never the body: the todo sweep calls this once per open email-sourced todo,
+// and it only needs presence plus enough detail to confirm it has the right
+// message.
+func (s *server) exists(_ context.Context, uid uint32, mailbox string) (string, error) {
+	return s.withClient(func(c *imapclient.Client) (string, error) {
+		mailbox, err := resolveMailbox(c, mailbox)
+		if err != nil {
+			return "", err
+		}
+		if _, err := c.Select(mailbox, nil).Wait(); err != nil {
+			return "", fmt.Errorf("select %q: %w", mailbox, err)
+		}
+		msgs, err := c.Fetch(imap.UIDSetNum(imap.UID(uid)), &imap.FetchOptions{Envelope: true, UID: true}).Collect()
+		if err != nil {
+			return "", fmt.Errorf("fetch: %w", err)
+		}
+		found, subject := false, ""
+		if len(msgs) > 0 {
+			found = true
+			if msgs[0].Envelope != nil {
+				subject = msgs[0].Envelope.Subject
+			}
+		}
+		return existsResult(uid, mailbox, subject, found), nil
+	})
+}
+
+// existsResult renders the answer for email_exists. The wording carries weight:
+// the agent acts on it, so "gone" has to read as "this no longer needs doing"
+// rather than as a failure to route around.
+func existsResult(uid uint32, mailbox, subject string, found bool) string {
+	if !found {
+		return fmt.Sprintf("gone: UID %d is no longer in %s (deleted or moved out), so whatever it asked for can be considered handled or dropped", uid, mailbox)
+	}
+	if subject = strings.TrimSpace(subject); subject != "" {
+		return fmt.Sprintf("present: UID %d is still in %s — %s", uid, mailbox, subject)
+	}
+	return fmt.Sprintf("present: UID %d is still in %s", uid, mailbox)
 }
 
 func (s *server) read(_ context.Context, uid uint32, mailbox string) (string, error) {

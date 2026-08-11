@@ -124,15 +124,56 @@ func TestFormatMessages(t *testing.T) {
 		{User: "U1", Text: "hi <@U2>", TS: "1700000000.0"},
 		{User: "U2", Text: "", Subtype: "channel_join", TS: "1700000060.0"},
 	}
-	out := formatMessages(msgs, nameOf, time.UTC)
+	out := formatMessages(msgs, nameOf, time.UTC, "")
 	if !strings.Contains(out, "alice: hi @bob") {
 		t.Errorf("mention not resolved in:\n%s", out)
 	}
 	if !strings.Contains(out, "bob: (channel_join)") {
 		t.Errorf("empty-body message should show its subtype:\n%s", out)
 	}
-	if formatMessages(nil, nameOf, time.UTC) != "(no messages)" {
+	if formatMessages(nil, nameOf, time.UTC, "") != "(no messages)" {
 		t.Error("empty should render (no messages)")
+	}
+}
+
+// Whether the owner already replied is what the todo sweep turns on, so their
+// own messages must be marked in the transcript rather than left for the model
+// to infer by matching a display name against a configured handle.
+func TestFormatMessagesMarksOwnMessages(t *testing.T) {
+	nameOf := func(id string) string {
+		if id == "U1" {
+			return "Burc Sahinoglu"
+		}
+		return "alice"
+	}
+	msgs := []message{
+		{User: "U2", Text: "can you review this?", TS: "1700000000.0"},
+		{User: "U1", Text: "on it", TS: "1700000060.0"},
+	}
+	out := formatMessages(msgs, nameOf, time.UTC, "U1")
+	if !strings.Contains(out, "Burc Sahinoglu (you): on it") {
+		t.Errorf("own message not marked:\n%s", out)
+	}
+	if strings.Contains(out, "alice (you)") {
+		t.Errorf("someone else's message wrongly marked:\n%s", out)
+	}
+	// Unknown identity (auth.test failed): render unmarked rather than fail.
+	if out := formatMessages(msgs, nameOf, time.UTC, ""); strings.Contains(out, "(you)") {
+		t.Errorf("nothing should be marked without an identity:\n%s", out)
+	}
+}
+
+func TestFormatMatchesMarksOwnMessages(t *testing.T) {
+	matches := []searchMatch{
+		{User: "U1", Username: "burc", Text: "shipped it", TS: "1700000000.0"},
+		{User: "U2", Username: "alice", Text: "thanks", TS: "1700000060.0"},
+	}
+	out := formatMatches(matches, time.UTC, "U1")
+	if !strings.Contains(out, "burc (you): shipped it") {
+		t.Errorf("own match not marked:\n%s", out)
+	}
+	if strings.Contains(out, "alice (you)") {
+		t.Errorf("other match wrongly marked:\n%s", out)
 	}
 }
 

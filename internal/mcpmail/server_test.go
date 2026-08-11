@@ -87,6 +87,33 @@ func TestParseMessageEncodedSubject(t *testing.T) {
 	}
 }
 
+// email_exists drives a decision, not a diagnostic: "gone" has to read as "this
+// no longer needs doing" so the sweep closes the todo instead of treating the
+// missing message as an error to work around.
+func TestExistsResult(t *testing.T) {
+	gone := existsResult(42, "INBOX", "", false)
+	if !strings.HasPrefix(gone, "gone:") {
+		t.Errorf("missing message should lead with gone: %q", gone)
+	}
+	for _, want := range []string{"42", "INBOX", "handled or dropped"} {
+		if !strings.Contains(gone, want) {
+			t.Errorf("gone result missing %q: %q", want, gone)
+		}
+	}
+
+	present := existsResult(42, "INBOX", "Re: roadmap", true)
+	if !strings.HasPrefix(present, "present:") {
+		t.Errorf("existing message should lead with present: %q", present)
+	}
+	if !strings.Contains(present, "Re: roadmap") {
+		t.Errorf("present result should name the subject: %q", present)
+	}
+	// A message whose envelope came back empty is still present.
+	if got := existsResult(7, "INBOX", "   ", true); !strings.HasPrefix(got, "present:") || strings.Contains(got, "—") {
+		t.Errorf("subject-less present result = %q", got)
+	}
+}
+
 func TestFormatAddresses(t *testing.T) {
 	got := formatAddresses([]imap.Address{
 		{Name: "Alice", Mailbox: "alice", Host: "example.com"},

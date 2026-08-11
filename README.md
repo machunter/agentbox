@@ -47,6 +47,7 @@ adapter.
   model cleaner, read-only file primitives alongside `run_bash`.
 - **`internal/mcpmail`** — a read-only email MCP server over IMAP
   (`list_new_emails`, `list_recent_emails`, `search_emails`, `read_email`,
+  `email_exists`,
   `list_mailboxes`), launched the same way. `list_new_emails` is incremental —
   a persisted per-mailbox UID watermark means briefings only see genuinely new
   mail. Mailbox aliases (`Sent`/`Drafts`/`Trash`/`Junk`/`Archive`)
@@ -378,7 +379,9 @@ send-to-anyone capability.
 
 Set `AGENTBOX_IMAP_HOST`, `AGENTBOX_IMAP_USER`, and `AGENTBOX_IMAP_PASS` (e.g. in
 `.env`) to give the agent read-only email tools: `list_mailboxes`,
-`list_recent_emails`, `search_emails`, and `read_email`. Mailbox aliases
+`list_recent_emails`, `search_emails`, `read_email`, and `email_exists`
+(which reports whether a message is still in the inbox, so a todo whose mail you
+deleted gets closed instead of chased). Mailbox aliases
 (`Sent`/`Drafts`/`Trash`/`Junk`/`Archive`) resolve to the provider's real folder
 automatically, so the agent can scan sent mail — e.g. to confirm a reply went out
 and close the matching todo. Use a provider **app password**, not your main
