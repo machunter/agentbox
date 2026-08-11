@@ -254,7 +254,16 @@ A **user** token is recommended because `search_messages` only works on user
 tokens; a bot token (`xoxb-…`) covers the other tools if you prefer. If the token
 is missing a scope you'll see `missing_scope` — add it and reinstall. (Channel
 listing degrades gracefully: with only `channels:read`, it lists public channels
-and skips private ones rather than failing.) Test it without spending API credits:
+and skips private ones rather than failing.)
+
+Listing covers the channels **the token's identity has joined**, not every
+channel in the workspace: with a user token that's your channels, with a bot
+token it's the ones the bot was invited to. A channel you haven't joined won't
+appear and can't be read, so if the agent says it can't find one, join it in
+Slack. Rate limits are handled inside the connector, which waits out a `429` and
+retries a couple of times before reporting failure.
+
+Test it without spending API credits:
 
 ```sh
 docker compose run --rm --entrypoint agentbox agentbox slack-check

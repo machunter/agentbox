@@ -229,6 +229,102 @@ func TestIsMissingScope(t *testing.T) {
 	}
 }
 
+// Channel listing must ask for the caller's own conversations, not every
+// channel in the workspace: conversations.list ignores membership and pages
+// enough times in a large org to hit Slack's rate limit on a routine briefing.
+func TestListsOnlyTheUsersConversations(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_, _ = w.Write([]byte(`{"ok":true,"channels":[{"id":"C1","name":"team-eng"}],"response_metadata":{"next_cursor":""}}`))
+	}))
+	defer srv.Close()
+
+	s := newServer(Config{Token: "x", Loc: time.UTC})
+	s.base = srv.URL + "/"
+
+	if _, err := s.channels(context.Background(), "public_channel"); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/users.conversations" {
+		t.Errorf("called %q, want /users.conversations", gotPath)
+	}
+}
+
+// A 429 must be absorbed by the connector. Handing it to the model makes it
+// improvise sleep-and-retry with run_bash, spending tool-call rounds against the
+// cap on something the transport can do itself.
+func TestCallRetriesAfterRateLimit(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if hits == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"channels":[{"id":"C1","name":"general"}],"response_metadata":{"next_cursor":""}}`))
+	}))
+	defer srv.Close()
+
+	s := newServer(Config{Token: "x", Loc: time.UTC})
+	s.base = srv.URL + "/"
+
+	chans, err := s.channels(context.Background(), "public_channel")
+	if err != nil {
+		t.Fatalf("a rate-limited call should be retried, got: %v", err)
+	}
+	if hits != 2 {
+		t.Errorf("want 2 requests (429 then success), got %d", hits)
+	}
+	if len(chans) != 1 {
+		t.Errorf("channels = %+v", chans)
+	}
+}
+
+// Retries are bounded: a persistently rate-limited endpoint has to surface an
+// error rather than sleep indefinitely inside a scheduled run.
+func TestCallGivesUpAfterBoundedRetries(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	s := newServer(Config{Token: "x", Loc: time.UTC})
+	s.base = srv.URL + "/"
+
+	_, err := s.channels(context.Background(), "public_channel")
+	if err == nil {
+		t.Fatal("persistent rate limiting should surface an error")
+	}
+	if !strings.Contains(err.Error(), "rate limited") {
+		t.Errorf("error should name the cause, got: %v", err)
+	}
+	if want := maxRateLimitRetries + 1; hits != want {
+		t.Errorf("want %d attempts, got %d", want, hits)
+	}
+}
+
+func TestRetryAfterHeader(t *testing.T) {
+	if got := retryAfter("12"); got != 12*time.Second {
+		t.Errorf("retryAfter(12) = %v", got)
+	}
+	// Missing or junk values fall back rather than retrying instantly.
+	if got := retryAfter(""); got != defaultRetryAfter {
+		t.Errorf("retryAfter(empty) = %v, want %v", got, defaultRetryAfter)
+	}
+	if got := retryAfter("soon"); got != defaultRetryAfter {
+		t.Errorf("retryAfter(junk) = %v, want %v", got, defaultRetryAfter)
+	}
+	// An absurd value is clamped so one bad header can't park the run.
+	if got := retryAfter("3600"); got != maxRetryAfter {
+		t.Errorf("retryAfter(3600) = %v, want %v", got, maxRetryAfter)
+	}
+}
+
 func TestChannelsFallsBackOnMissingScope(t *testing.T) {
 	var publicOnlyHits int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

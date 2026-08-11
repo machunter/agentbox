@@ -34,6 +34,13 @@ const (
 	defaultSearchCount  = 20
 	maxFetchBytes       = 8 << 20 // cap a single API response
 	defaultFetchTimeout = 30 * time.Second
+
+	// Rate-limit handling. Slack's Tier 2/3 windows clear in well under a
+	// minute, so a couple of bounded waits ride out a burst; past that the
+	// error belongs to the caller rather than another minute of sleeping.
+	maxRateLimitRetries = 2
+	defaultRetryAfter   = 5 * time.Second  // when Slack sends no Retry-After
+	maxRetryAfter       = 30 * time.Second // ceiling on a single wait
 )
 
 // fetchTimeout is the per-request HTTP timeout, overridable via
@@ -87,7 +94,7 @@ type server struct {
 	mu       sync.Mutex
 	userName map[string]string // user ID -> display name
 	chanByID map[string]string // channel ID -> name
-	chanList []channel         // cached conversations.list result
+	chanList []channel         // cached users.conversations result
 }
 
 // Serve runs the Slack MCP server over stdio until the context is cancelled.
@@ -154,7 +161,7 @@ type searchInput struct {
 func (s *server) registerTools(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_channels",
-		Description: "List Slack channels (and DMs/groups if requested): ID, name, and whether private. Use to find the channel to read.",
+		Description: "List the Slack channels the user is a member of (and DMs/groups if requested): ID, name, and whether private. Use to find the channel to read. Channels the user hasn't joined are not listed and can't be read.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listChannelsInput) (*mcp.CallToolResult, any, error) {
 		out, err := s.listChannels(ctx, in.Types, clampLimit(in.Limit, maxLimit))
 		return textResult(out, err), nil, nil
@@ -284,7 +291,11 @@ func (s *server) channels(ctx context.Context, types string) ([]channel, error) 
 	return all, nil
 }
 
-// listConversations pages through conversations.list for the given types.
+// listConversations pages through users.conversations for the given types: the
+// conversations the token's own identity belongs to. conversations.list would
+// return every channel in the workspace regardless of membership, which is the
+// wrong answer for "my channels" and, in a large org, pages enough times to hit
+// Slack's rate limit on a routine briefing.
 func (s *server) listConversations(ctx context.Context, types string) ([]channel, error) {
 	var all []channel
 	cursor := ""
@@ -294,7 +305,7 @@ func (s *server) listConversations(ctx context.Context, types string) ([]channel
 			params.Set("cursor", cursor)
 		}
 		var out conversationsListResp
-		if err := s.call(ctx, "conversations.list", params, &out); err != nil {
+		if err := s.call(ctx, "users.conversations", params, &out); err != nil {
 			return nil, err
 		}
 		all = append(all, out.Channels...)
@@ -331,7 +342,7 @@ func (s *server) resolveChannelID(ctx context.Context, ref string) (string, erro
 			return c.ID, nil
 		}
 	}
-	return "", fmt.Errorf("no channel named %q (use list_channels to see available channels)", ref)
+	return "", fmt.Errorf("no channel named %q among the ones you're in (list_channels shows them; join it in Slack to make it readable)", ref)
 }
 
 // nameResolver returns a function that maps a user ID to a display name, caching
@@ -378,36 +389,75 @@ func (s *server) oldest(sinceDays int) string {
 // envelope into out. It returns an error for transport failures and for Slack's
 // {"ok": false, "error": "..."} responses. The token rides in the Authorization
 // header (never the URL), so errors can be surfaced without leaking it.
+// call performs a Slack API request, waiting out rate limits itself. A 429 is
+// never returned to the agent while retries remain: left to the model it
+// improvises its own sleep-and-retry with run_bash, which burns tool-call rounds
+// against the cap for something the connector can handle.
 func (s *server) call(ctx context.Context, method string, params url.Values, out apiResponse) error {
+	for attempt := 0; ; attempt++ {
+		wait, err := s.callOnce(ctx, method, params, out)
+		if wait <= 0 || attempt >= maxRateLimitRetries {
+			return err // not rate-limited, or out of patience: surface it
+		}
+		fmt.Fprintf(os.Stderr, "mcp-slack: %s rate limited, waiting %s (attempt %d/%d)\n",
+			method, wait, attempt+1, maxRateLimitRetries)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
+		}
+	}
+}
+
+// callOnce performs one request. It returns a positive delay together with the
+// error when Slack rate-limited the call, so call can wait and retry; every
+// other outcome returns a zero delay.
+func (s *server) callOnce(ctx context.Context, method string, params url.Values, out apiResponse) (time.Duration, error) {
 	endpoint := s.base + method
 	if len(params) > 0 {
 		endpoint += "?" + params.Encode()
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return fmt.Errorf("%s: %w", method, err)
+		return 0, fmt.Errorf("%s: %w", method, err)
 	}
 	req.Header.Set("Authorization", "Bearer "+s.cfg.Token)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s: request failed: %v", method, err)
+		return 0, fmt.Errorf("%s: request failed: %v", method, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return fmt.Errorf("%s: rate limited (retry after %ss)", method, resp.Header.Get("Retry-After"))
+		wait := retryAfter(resp.Header.Get("Retry-After"))
+		return wait, fmt.Errorf("%s: rate limited (retry after %s)", method, wait)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes))
 	if err != nil {
-		return fmt.Errorf("%s: read failed: %v", method, err)
+		return 0, fmt.Errorf("%s: read failed: %v", method, err)
 	}
 	if err := json.Unmarshal(body, out); err != nil {
-		return fmt.Errorf("%s: decode failed: %v", method, err)
+		return 0, fmt.Errorf("%s: decode failed: %v", method, err)
 	}
 	if !out.isOK() {
-		return fmt.Errorf("%s: %s", method, out.errMessage())
+		return 0, fmt.Errorf("%s: %s", method, out.errMessage())
 	}
-	return nil
+	return 0, nil
+}
+
+// retryAfter parses Slack's Retry-After header (whole seconds), falling back to
+// a default when it's missing or unparseable and clamping it so one hostile or
+// mistaken value can't park a scheduled run. Always positive, so callers can use
+// it as the "this was a 429" signal.
+func retryAfter(header string) time.Duration {
+	n, err := strconv.Atoi(strings.TrimSpace(header))
+	if err != nil || n <= 0 {
+		return defaultRetryAfter
+	}
+	if d := time.Duration(n) * time.Second; d < maxRetryAfter {
+		return d
+	}
+	return maxRetryAfter
 }
 
 func textResult(text string, err error) *mcp.CallToolResult {

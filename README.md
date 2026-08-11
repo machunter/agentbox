@@ -430,7 +430,9 @@ api.slack.com/apps → **OAuth & Permissions** → add user-token scopes
 (`channels:history`, `groups:history`, `search:read`, `users:read`,
 `channels:read`) → **Install to Workspace** → copy the **User OAuth Token**
 (`xoxp-…`). A bot token (`xoxb-…`) works for everything except `search_messages`,
-which Slack only allows on user tokens. Test the token without the agent via
+which Slack only allows on user tokens. `list_channels` covers the channels the
+token's identity has joined, not the whole workspace, so join a channel in Slack
+if you want the agent to see it. Test the token without the agent via
 `agentbox slack-check`. Posting isn't supported yet — it'll come as a separate,
 confirmation-gated capability, the same as email sending.
 
