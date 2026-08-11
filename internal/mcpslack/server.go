@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -91,10 +92,10 @@ type server struct {
 
 	// In-process caches so the several tool calls in one run don't re-resolve
 	// the same channels/users. The server is short-lived (one run).
-	mu       sync.Mutex
-	userName map[string]string // user ID -> display name
-	chanByID map[string]string // channel ID -> name
-	chanList []channel         // cached users.conversations result
+	mu        sync.Mutex
+	userName  map[string]string    // user ID -> display name
+	chanByID  map[string]string    // channel ID -> name
+	chanLists map[string][]channel // cached users.conversations results, by normalized types
 }
 
 // Serve runs the Slack MCP server over stdio until the context is cancelled.
@@ -111,11 +112,12 @@ func Serve(ctx context.Context) error {
 
 func newServer(cfg Config) *server {
 	return &server{
-		cfg:      cfg,
-		client:   &http.Client{Timeout: fetchTimeout()},
-		base:     apiBase,
-		userName: map[string]string{},
-		chanByID: map[string]string{},
+		cfg:       cfg,
+		client:    &http.Client{Timeout: fetchTimeout()},
+		base:      apiBase,
+		userName:  map[string]string{},
+		chanByID:  map[string]string{},
+		chanLists: map[string][]channel{},
 	}
 }
 
@@ -258,18 +260,20 @@ func (s *server) searchMessages(ctx context.Context, query string, count int) (s
 	return formatMatches(out.Messages.Matches, s.cfg.Loc), nil
 }
 
-// channels returns the workspace conversations, cached for the run.
+// channels returns the caller's conversations of the given types, cached for the
+// run. The cache is keyed by types: it used to hold one list for any request, so
+// a list_channels call for public+private would satisfy a later lookup asking
+// for im/mpim and a DM would come back "not found" despite existing.
 func (s *server) channels(ctx context.Context, types string) ([]channel, error) {
+	types = normalizeTypes(types)
+
 	s.mu.Lock()
-	if s.chanList != nil {
+	if cached, ok := s.chanLists[types]; ok {
 		defer s.mu.Unlock()
-		return s.chanList, nil
+		return cached, nil
 	}
 	s.mu.Unlock()
 
-	if strings.TrimSpace(types) == "" {
-		types = "public_channel,private_channel"
-	}
 	all, err := s.listConversations(ctx, types)
 	if err != nil && isMissingScope(err) && types != "public_channel" {
 		// The token lacks the scope for some channel types (e.g. groups:read for
@@ -283,12 +287,33 @@ func (s *server) channels(ctx context.Context, types string) ([]channel, error) 
 	}
 
 	s.mu.Lock()
-	s.chanList = all
+	// Cached under the requested types, including after a missing_scope
+	// fallback, so the same request doesn't re-attempt the call that just failed.
+	s.chanLists[types] = all
 	for _, c := range all {
 		s.chanByID[c.ID] = c.displayName()
 	}
 	s.mu.Unlock()
 	return all, nil
+}
+
+// normalizeTypes canonicalizes a comma-separated conversation-type list so it
+// works as a cache key: defaulted when empty, lowercased, deduped, and sorted,
+// so "im,mpim" and "mpim, im" are one entry rather than two.
+func normalizeTypes(types string) string {
+	seen := map[string]bool{}
+	var out []string
+	for _, t := range strings.Split(strings.ToLower(types), ",") {
+		if t = strings.TrimSpace(t); t != "" && !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	if len(out) == 0 {
+		return "public_channel,private_channel"
+	}
+	sort.Strings(out)
+	return strings.Join(out, ",")
 }
 
 // listConversations pages through users.conversations for the given types: the

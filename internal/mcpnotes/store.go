@@ -437,7 +437,7 @@ func (s *Store) recentDoneTextsLocked(days int) []string {
 
 // srcPrefix marks the source list inside a todo's trailing HTML comment:
 //
-//	- [ ] Reply to Jary about the roadmap  <!-- 2026-08-10 src:slack:team-eng/1723456.123 -->
+//   - [ ] Reply to Jary about the roadmap  <!-- 2026-08-10 src:slack:team-eng/1723456.123 -->
 //
 // Sources say where the item came from, so a later sweep looks for the reply in
 // the place that asked for it rather than always scanning Sent mail. Todos

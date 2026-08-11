@@ -325,6 +325,69 @@ func TestRetryAfterHeader(t *testing.T) {
 	}
 }
 
+// The per-run channel cache must be keyed by the requested types. It used to
+// hold a single list for any request, so a list_channels call for public+private
+// satisfied a later DM lookup and read_channel on a DM failed with "no channel
+// named ..." even though the DM existed.
+func TestChannelCacheIsKeyedByTypes(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if strings.Contains(r.URL.Query().Get("types"), "im") {
+			_, _ = w.Write([]byte(`{"ok":true,"channels":[{"id":"D1","is_im":true,"user":"U9"}],"response_metadata":{"next_cursor":""}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"channels":[{"id":"C1","name":"general"}],"response_metadata":{"next_cursor":""}}`))
+	}))
+	defer srv.Close()
+
+	s := newServer(Config{Token: "x", Loc: time.UTC})
+	s.base = srv.URL + "/"
+	ctx := context.Background()
+
+	if _, err := s.channels(ctx, "public_channel,private_channel"); err != nil {
+		t.Fatal(err)
+	}
+	dms, err := s.channels(ctx, "im,mpim")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("a different types request must not reuse the cache: %d API calls", calls)
+	}
+	if len(dms) != 1 || dms[0].ID != "D1" {
+		t.Errorf("DM lookup got %+v, want the D1 IM", dms)
+	}
+
+	// The same request, however spelled, is served from cache.
+	if _, err := s.channels(ctx, " mpim , im "); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.channels(ctx, "im,mpim"); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Errorf("equivalent types should hit the cache, got %d API calls", calls)
+	}
+}
+
+func TestNormalizeTypes(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                                "public_channel,private_channel",
+		"   ":                             "public_channel,private_channel",
+		"im,mpim":                         "im,mpim",
+		" mpim , im ":                     "im,mpim",
+		"IM,MPIM":                         "im,mpim",
+		"im,im":                           "im",
+		"public_channel,private_channel":  "private_channel,public_channel",
+		"private_channel, public_channel": "private_channel,public_channel",
+	} {
+		if got := normalizeTypes(in); got != want {
+			t.Errorf("normalizeTypes(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestChannelsFallsBackOnMissingScope(t *testing.T) {
 	var publicOnlyHits int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
